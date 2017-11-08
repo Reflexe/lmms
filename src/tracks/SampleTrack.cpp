@@ -219,6 +219,11 @@ void SampleTCO::setIsPlaying(bool isPlaying)
 	m_isPlaying = isPlaying;
 }
 
+bool SampleTCO::isEmpty() const
+{
+	return (sampleLength () == 0);
+}
+
 
 
 
