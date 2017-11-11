@@ -434,6 +434,8 @@ public:
 	~TrackOperationsWidget();
 
 
+	QPushButton *trackOps() const;
+
 protected:
 	void mousePressEvent( QMouseEvent * me ) override;
 	void paintEvent( QPaintEvent * pe ) override;
@@ -443,9 +445,6 @@ private slots:
 	void cloneTrack();
 	void removeTrack();
 	void updateMenu();
-	void toggleRecording(bool on);
-	void recordingOn();
-	void recordingOff();
 	void clearTrack();
 
 private:
@@ -685,6 +684,8 @@ public:
 	// Create a menu for assigning/creating channels for this track
 	// Currently instrument track and sample track supports it
 	virtual QMenu * createFxMenu(QString title, QString newFxLabel);
+
+	virtual void updateTrackOperationsWidgetMenu (TrackOperationsWidget *trackOperations);
 
 
 public slots:
