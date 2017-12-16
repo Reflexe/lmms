@@ -605,6 +605,7 @@ SampleTrack::SampleTrack( TrackContainer* tc ) :
 	m_effectChannelModel.setRange( 0, Engine::fxMixer()->numChannels()-1, 1);
 
 	connect( &m_effectChannelModel, SIGNAL( dataChanged() ), this, SLOT( updateEffectChannel() ) );
+	connect (Engine::getSong (), SIGNAL(beforeRecord()), this, SLOT(beforeRecord()));
 }
 
 
@@ -644,6 +645,12 @@ bool SampleTrack::play( const MidiTime & _start, const fpp_t _frames,
 		{
 			TrackContentObject * tco = getTCO( i );
 			SampleTCO * sTco = dynamic_cast<SampleTCO*>( tco );
+
+			// If this is an automaticlly created record track, resize it to the current
+			// position.
+			if (sTco->isRecord () && !sTco->isMuted () && sTco->getAutoResize ()) {
+				sTco->changeLength (_start - sTco->startPosition());
+			}
 
 			if( _start >= sTco->startPosition() && _start < sTco->endPosition() )
 			{
@@ -784,6 +791,36 @@ void SampleTrack::setPlayingTcos( bool isPlaying )
 		SampleTCO * sTco = dynamic_cast<SampleTCO*>( tco );
 		sTco->setIsPlaying( isPlaying );
 	}
+}
+
+void SampleTrack::beforeRecord() {
+	if (isRecord ()) {
+		bool isRecordTCOExist = false;
+
+		for(auto &track : getTCOs ()) {
+			auto sampleTCO = static_cast<SampleTCO*>(track);
+
+			if (sampleTCO->isRecord() && !sampleTCO->isMuted())
+				isRecordTCOExist = true;
+		}
+
+		if (! isRecordTCOExist) {
+			auto fallbackRecordTCO = static_cast<SampleTCO*>(createTCO (0));
+
+			fallbackRecordTCO->setRecord (true);
+			fallbackRecordTCO->movePosition (Engine::getSong ()->getPlayPos (Song::Mode_PlaySong));
+			fallbackRecordTCO->changeLength (1);
+			fallbackRecordTCO->setSampleStartFrame (0);
+			fallbackRecordTCO->setSamplePlayLength (Engine::framesPerTick());
+			fallbackRecordTCO->setIsPlaying (true);
+
+			fallbackRecordTCO->setAutoResize (true);
+		}
+	}
+}
+
+void SampleTrack::toggleRecord() {
+	setRecord (! isRecord ());
 }
 
 SampleTrack::RecordingChannel SampleTrack::recordingChannel() const{
@@ -931,6 +968,10 @@ void SampleTrackView::updateTrackOperationsWidgetMenu(TrackOperationsWidget *tra
 	recordMenu->addActions (recordChannels->actions ());
 
 	connect (recordChannels, SIGNAL(triggered(QAction*)), SLOT(onRecordActionSelected(QAction*)));
+
+	auto recordAction = toMenu->addAction( tr( "Toggle record" ), st, SLOT( toggleRecord() ) );
+	recordAction->setCheckable (true);
+	recordAction->setChecked (st->isRecord ());
 }
 
 
