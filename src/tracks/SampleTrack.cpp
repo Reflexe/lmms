@@ -505,9 +505,14 @@ void SampleTCOView::paintEvent( QPaintEvent * pe )
 	QColor c;
 	bool muted = m_tco->getTrack()->isMuted() || m_tco->isMuted();
 
-	// state: selected, muted, normal
-	c = isSelected() ? selectedColor() : ( muted ? mutedBackgroundColor()
-		: painter.background().color() );
+	if (isSelected ())
+		c = selectedColor ();
+	else if (muted)
+		c = mutedBackgroundColor ();
+	else if (m_tco->isRecord ())
+		c = recordingBackgroundColor ();
+	else
+		c = painter.background ().color ();
 
 	lingrad.setColorAt( 1, c.darker( 300 ) );
 	lingrad.setColorAt( 0, c );
@@ -564,21 +569,6 @@ void SampleTCOView::paintEvent( QPaintEvent * pe )
 		const int size = 14;
 		p.drawPixmap( spacing, height() - ( size + spacing ),
 			embed::getIconPixmap( "muted", size, size ) );
-	}
-
-	// recording sample tracks is not possible at the moment
-
-	if( m_tco->isRecord() )
-	{
-		p.setFont( pointSize<7>( p.font() ) );
-
-		p.setPen( textShadowColor() );
-		p.drawText( 10, p.fontMetrics().height()+1, "Rec" );
-		p.setPen( textColor() );
-		p.drawText( 9, p.fontMetrics().height(), "Rec" );
-
-		p.setBrush( QBrush( textColor() ) );
-		p.drawEllipse( 4, 5, 4, 4 );
 	}
 
 	p.end();
