@@ -139,21 +139,6 @@ const QString & SampleTCO::sampleFile() const
 
 
 
-void SampleTCO::setSampleBuffer( SampleBuffer* sb )
-{
-	Engine::mixer()->requestChangeInModel();
-	sharedObject::unref( m_sampleBuffer );
-	setStartTimeOffset( 0 );
-	Engine::mixer()->doneChangeInModel();
-	m_sampleBuffer = sb;
-	connect (m_sampleBuffer, SIGNAL(sampleUpdated()), this, SLOT(onSampleBufferChanged()));
-	updateLength();
-
-	emit sampleChanged();
-}
-
-
-
 void SampleTCO::setSampleFile( const QString & _sf )
 {
 	int length;
@@ -635,7 +620,8 @@ SampleTrack::~SampleTrack()
 bool SampleTrack::play( const MidiTime & _start, const fpp_t _frames,
 					const f_cnt_t _offset, int _tco_num )
 {
-	m_audioPort.effects()->startRunning();
+	if (m_audioPort.effects())
+		m_audioPort.effects()->startRunning();
 	bool played_a_note = false;	// will be return variable
 
 	tcoVector tcos;
