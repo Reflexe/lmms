@@ -63,6 +63,7 @@ AudioPortAudio::AudioPortAudio( bool & _success_ful, Mixer * _mixer ) :
 	m_outBufPos( 0 )
 {
 	_success_ful = false;
+	m_supportsCapture = true;
 
 	m_outBufSize = mixer()->framesPerPeriod();
 
@@ -169,9 +170,6 @@ AudioPortAudio::AudioPortAudio( bool & _success_ful, Mixer * _mixer ) :
 	printf( "Input device: '%s' backend: '%s'\n", Pa_GetDeviceInfo( inDevIdx )->name, Pa_GetHostApiInfo( Pa_GetDeviceInfo( inDevIdx )->hostApi )->name );
 	printf( "Output device: '%s' backend: '%s'\n", Pa_GetDeviceInfo( outDevIdx )->name, Pa_GetHostApiInfo( Pa_GetDeviceInfo( outDevIdx )->hostApi )->name );
 
-	// TODO: debug Mixer::pushInputFrames()
-	//m_supportsCapture = true;
-
 	_success_ful = true;
 }
 
@@ -259,7 +257,7 @@ int AudioPortAudio::process_callback(
 	float * _outputBuffer,
 	unsigned long _framesPerBuffer )
 {
-	if( supportsCapture() )
+	if( supportsCapture() && _inputBuffer)
 	{
 		mixer()->pushInputFrames( (sampleFrame*)_inputBuffer,
 												_framesPerBuffer );
