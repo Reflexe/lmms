@@ -52,6 +52,7 @@
 #include "FxMixerView.h"
 #include "TabWidget.h"
 #include "TrackLabelButton.h"
+#include "SampleBuffer.h"
 
 SampleTCO::SampleTCO( Track * _track ) :
 	TrackContentObject( _track ),
@@ -59,7 +60,6 @@ SampleTCO::SampleTCO( Track * _track ) :
 	m_isPlaying( false )
 {
 	saveJournallingState( false );
-	setSampleFile( "" );
 	restoreJournallingState();
 
 	// we need to receive bpm-change-events, because then we have to
@@ -68,26 +68,6 @@ SampleTCO::SampleTCO( Track * _track ) :
 					this, SLOT( updateLength() ), Qt::DirectConnection );
 	connect( Engine::getSong(), SIGNAL( timeSignatureChanged( int,int ) ),
 					this, SLOT( updateLength() ) );
-
-	//care about positionmarker
-	TimeLineWidget * timeLine = Engine::getSong()->getPlayPos( Engine::getSong()->Mode_PlaySong ).m_timeLine;
-	if( timeLine )
-	{
-		connect( timeLine, SIGNAL( positionMarkerMoved() ), this, SLOT( playbackPositionChanged() ) );
-	}
-	//playbutton clicked or space key / on Export Song set isPlaying to false
-	connect( Engine::getSong(), SIGNAL( playbackStateChanged() ),
-			this, SLOT( playbackPositionChanged() ), Qt::DirectConnection );
-	//care about loops
-	connect( Engine::getSong(), SIGNAL( updateSampleTracks() ),
-			this, SLOT( playbackPositionChanged() ), Qt::DirectConnection );
-	//care about mute TCOs
-	connect( this, SIGNAL( dataChanged() ), this, SLOT( playbackPositionChanged() ) );
-	//care about mute track
-	connect( getTrack()->getMutedModel(), SIGNAL( dataChanged() ),
-			this, SLOT( playbackPositionChanged() ), Qt::DirectConnection );
-	//care about TCO position
-	connect( this, SIGNAL( positionChanged() ), this, SLOT( updateTrackTcos() ) );
 
 	connect (m_sampleBuffer, SIGNAL(sampleUpdated()), this, SLOT(onSampleBufferChanged()));
 
@@ -103,7 +83,9 @@ SampleTCO::SampleTCO( Track * _track ) :
 			setAutoResize( false );
 			break;
 	}
-	updateTrackTcos();
+
+	//care about TCO position
+	connect( this, SIGNAL( positionChanged() ), getTrack (), SLOT( updateTcos() ) );
 }
 
 
@@ -157,8 +139,7 @@ void SampleTCO::setSampleFile( const QString & _sf )
 
 	setStartTimeOffset( 0 );
 
-	emit sampleChanged();
-	emit playbackPositionChanged();
+	// Already has been has been called sampleChanged from m_sampleBuffer.
 }
 
 
@@ -171,26 +152,6 @@ void SampleTCO::toggleRecord()
 }
 
 
-
-
-void SampleTCO::playbackPositionChanged()
-{
-	Engine::mixer()->removePlayHandlesOfTypes( getTrack(), PlayHandle::TypeSamplePlayHandle );
-	SampleTrack * st = dynamic_cast<SampleTrack*>( getTrack() );
-	st->setPlayingTcos( false );
-}
-
-
-
-
-void SampleTCO::updateTrackTcos()
-{
-	SampleTrack * sampletrack = dynamic_cast<SampleTrack*>( getTrack() );
-	if( sampletrack)
-	{
-		sampletrack->updateTcos();
-	}
-}
 
 void SampleTCO::onSampleBufferChanged()
 {
@@ -339,10 +300,8 @@ void SampleTCOView::updateSample()
 	ToolTip::add( this, ( m_tco->m_sampleBuffer->audioFile() != "" ) ?
 					m_tco->m_sampleBuffer->audioFile() :
 					tr( "Double-click to open sample" ) );
+	setNeedsUpdate (true);
 }
-
-
-
 
 void SampleTCOView::contextMenuEvent( QContextMenuEvent * _cme )
 {
@@ -434,7 +393,7 @@ void SampleTCOView::mousePressEvent( QMouseEvent * _me )
 			SampleTCO * sTco = dynamic_cast<SampleTCO*>( getTrackContentObject() );
 			if( sTco )
 			{
-				sTco->updateTrackTcos();
+				static_cast<SampleTrack*>(sTco->getTrack ())->updateTcos ();
 			}
 		}
 		TrackContentObjectView::mousePressEvent( _me );
@@ -451,7 +410,7 @@ void SampleTCOView::mouseReleaseEvent(QMouseEvent *_me)
 		SampleTCO * sTco = dynamic_cast<SampleTCO*>( getTrackContentObject() );
 		if( sTco )
 		{
-			sTco->playbackPositionChanged();
+			static_cast<SampleTrack*>(sTco->getTrack ())->playbackPositionChanged();
 		}
 	}
 	TrackContentObjectView::mouseReleaseEvent( _me );
@@ -609,6 +568,25 @@ SampleTrack::SampleTrack( TrackContainer* tc ) :
 
 	connect( &m_effectChannelModel, SIGNAL( dataChanged() ), this, SLOT( updateEffectChannel() ) );
 	connect (Engine::getSong (), SIGNAL(beforeRecord()), this, SLOT(beforeRecord()));
+
+
+	//care about positionmarker
+	TimeLineWidget * timeLine = Engine::getSong()->getPlayPos( Engine::getSong()->Mode_PlaySong ).m_timeLine;
+	if( timeLine )
+	{
+		connect( timeLine, SIGNAL( positionMarkerMoved() ), this, SLOT( playbackPositionChanged() ) );
+	}
+	//playbutton clicked or space key / on Export Song set isPlaying to false
+	connect( Engine::getSong(), SIGNAL( playbackStateChanged() ),
+			this, SLOT( playbackPositionChanged() ), Qt::DirectConnection );
+	//care about loops
+	connect( Engine::getSong(), SIGNAL( updateSampleTracks() ),
+			this, SLOT( playbackPositionChanged() ), Qt::DirectConnection );
+	//care about mute TCOs
+	connect( this, SIGNAL( dataChanged() ), this, SLOT( playbackPositionChanged() ) );
+	//care about mute track
+	connect( getMutedModel(), SIGNAL( dataChanged() ),
+			this, SLOT( playbackPositionChanged() ), Qt::DirectConnection );
 }
 
 
@@ -650,7 +628,7 @@ bool SampleTrack::play( const MidiTime & _start, const fpp_t _frames,
 			TrackContentObject * tco = getTCO( i );
 			SampleTCO * sTco = dynamic_cast<SampleTCO*>( tco );
 
-			// If this is an automaticlly created record track, resize it to the current
+			// If this is an automatically created record track, resize it to the current
 			// position.
 			if (sTco->isRecord () && !sTco->isMuted () && sTco->getAutoResize ()) {
 				sTco->changeLength (_start - sTco->startPosition());
@@ -818,10 +796,11 @@ void SampleTrack::beforeRecord() {
 
 			fallbackRecordTCO->setRecord (true);
 			fallbackRecordTCO->movePosition (Engine::getSong ()->getPlayPos (Song::Mode_PlaySong));
+//			fallbackRecordTCO->setSamplePlayLength (Engine::framesPerTick());
 			fallbackRecordTCO->changeLength (1);
 			fallbackRecordTCO->setSampleStartFrame (0);
 			fallbackRecordTCO->setSamplePlayLength (Engine::framesPerTick());
-			fallbackRecordTCO->setIsPlaying (true);
+			fallbackRecordTCO->setIsPlaying (false);
 
 			fallbackRecordTCO->setAutoResize (true);
 		}
@@ -830,6 +809,13 @@ void SampleTrack::beforeRecord() {
 
 void SampleTrack::toggleRecord() {
 	setRecord (! isRecord ());
+}
+
+void SampleTrack::playbackPositionChanged()
+{
+	Engine::mixer()->removePlayHandlesOfTypes( this, PlayHandle::TypeSamplePlayHandle );
+
+	setPlayingTcos( false );
 }
 
 SampleTrack::RecordingChannel SampleTrack::recordingChannel() const{
