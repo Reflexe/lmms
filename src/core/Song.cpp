@@ -265,6 +265,9 @@ void Song::processNextBuffer()
 			m_vstSyncController.setPlaybackJumped( true );
 
 			emit updateSampleTracks();
+
+			if (isRecording ())
+				emit beforeRecord ();
 		}
 	}
 
@@ -347,6 +350,10 @@ void Song::processNextBuffer()
 
 					m_vstSyncController.setPlaybackJumped( true );
 
+					if (isRecording())
+					{
+						emit beforeRecord ();
+					}
 					emit updateSampleTracks();
 				}
 			}
