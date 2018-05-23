@@ -69,7 +69,7 @@ SampleTCO::SampleTCO( Track * _track ) :
 	connect( Engine::getSong(), SIGNAL( timeSignatureChanged( int,int ) ),
 					this, SLOT( updateLength() ) );
 
-	connect (m_sampleBuffer, SIGNAL(sampleUpdated()), this, SLOT(onSampleBufferChanged()));
+	connect (m_sampleBuffer.get (), SIGNAL(sampleUpdated()), this, SLOT(onSampleBufferChanged()));
 
 	switch( getTrack()->trackContainer()->type() )
 	{
@@ -98,9 +98,6 @@ SampleTCO::~SampleTCO()
 	{
 		sampletrack->updateTcos();
 	}
-	Engine::mixer()->requestChangeInModel();
-	sharedObject::unref( m_sampleBuffer );
-	Engine::mixer()->doneChangeInModel();
 }
 
 
