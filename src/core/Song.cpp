@@ -274,11 +274,6 @@ void Song::processNextBuffer()
 		m_vstSyncController.setPlaybackJumped( true );
 		m_playPos[m_playMode].setJumped( false );
 	}
-	
-	if (isRecording())
-	{
-		emit beforeRecordOn(getPlayPos());
-	}
 
 	f_cnt_t framesPlayed = 0;
 	const float framesPerTick = Engine::framesPerTick();
@@ -355,8 +350,9 @@ void Song::processNextBuffer()
 
 					if (isRecording())
 					{
-						emit beforeRecordOn(getPlayPos());
+						emit beforeRecordOn(tl->loopBegin());
 					}
+
 					emit updateSampleTracks();
 				}
 			}
@@ -567,6 +563,17 @@ void Song::playAndRecord()
 {
 	playSong();
 	m_recording = true;
+
+	MidiTime time = getPlayPos();
+	auto tl = getPlayPos().m_timeLine;
+	bool checkLoop =
+		tl != NULL && tl->loopPointsEnabled();
+
+	if (checkLoop && (time >= tl->loopEnd() || time < tl->loopBegin())) {
+		time = tl->loopBegin();
+	}
+
+	emit beforeRecordOn(time);
 }
 
 

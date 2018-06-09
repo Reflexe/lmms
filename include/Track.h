@@ -151,6 +151,9 @@ public:
 	MidiTime startTimeOffset() const;
 	void setStartTimeOffset( const MidiTime &startTimeOffset );
 
+	bool isRecording() const;
+	void setIsRecording(bool value);
+
 public slots:
 	void copy();
 	void paste();
@@ -181,6 +184,8 @@ private:
 	BoolModel m_mutedModel;
 	BoolModel m_soloModel;
 	bool m_autoResize;
+
+	bool m_isRecording{false};
 
 	bool m_selectViewOnCreate;
 
