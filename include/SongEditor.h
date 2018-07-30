@@ -32,6 +32,7 @@
 #include "ActionGroup.h"
 #include "Editor.h"
 #include "TrackContainerView.h"
+#include "SampleTrack.h"
 
 class QLabel;
 class QScrollBar;
@@ -179,6 +180,8 @@ public:
 
 	SongEditor* m_editor;
 
+	SampleTrack::RecordingChannel globalRecordChannel() const;
+
 protected:
 	void resizeEvent( QResizeEvent * event ) override;
 	void changeEvent( QEvent * ) override;
@@ -193,6 +196,8 @@ protected slots:
 	void adjustUiAfterProjectLoad();
 
 	void updateSnapLabel();
+
+	void onRecordChannelSelected(QAction *action);
 
 signals:
 	void playTriggered();
@@ -215,6 +220,8 @@ private:
 	ComboBox * m_zoomingComboBox;
 	ComboBox * m_snappingComboBox;
 	QLabel* m_snapSizeLabel;
+
+	SampleTrack::RecordingChannel m_globalRecordChannel = SampleTrack::RecordingChannel::Stereo;
 };
 
 #endif
