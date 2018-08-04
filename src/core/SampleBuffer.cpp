@@ -81,7 +81,7 @@ SampleBuffer::SampleBuffer( const QString & _audio_file,
 	}
 	else
 	{
-		changeAudioFile (_audio_file);
+		setAudioFile (_audio_file);
 	}
 }
 
@@ -1020,6 +1020,7 @@ QString & SampleBuffer::toBase64( QString & _dst ) const
 
 void SampleBuffer::setAudioFile( const QString & _audio_file )
 {
+	m_audioFile = tryToMakeRelative(_audio_file);
 	changeAudioFile (_audio_file);
 }
 
