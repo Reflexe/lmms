@@ -149,11 +149,10 @@ public:
 
 	SampleTrack( TrackContainer* tc );
 	virtual ~SampleTrack();
-
-	virtual bool play( const MidiTime & _start, const fpp_t _frames,
-						const f_cnt_t _frame_base, int _tco_num = -1 ) override;
-	TrackView * createView( TrackContainerView* tcv ) override;
-	TrackContentObject * createTCO( const MidiTime & _pos ) override;
+	virtual bool play(const MidiTime &_start, const fpp_t _frames,
+					  const f_cnt_t _frame_base, int _tco_num = -1) override;
+	TrackView *createView(TrackContainerView *tcv) override;
+	TrackContentObject *unsafeCreateTCO(const MidiTime &) override;
 
 
 	virtual void saveTrackSpecificSettings( QDomDocument & _doc,

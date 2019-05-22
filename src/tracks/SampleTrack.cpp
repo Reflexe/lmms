@@ -1,4 +1,4 @@
-﻿/*
+/*
  * SampleTrack.cpp - implementation of class SampleTrack, a track which
  *                   provides arrangement of samples
  *
@@ -681,10 +681,7 @@ TrackView * SampleTrack::createView( TrackContainerView* tcv )
 }
 
 
-
-
-TrackContentObject * SampleTrack::createTCO(const MidiTime & pos)
-{
+TrackContentObject *SampleTrack::unsafeCreateTCO(const MidiTime &pos) {
 	SampleTCO * sTco = new SampleTCO(this);
 	sTco->movePosition(pos);
 	return sTco;
