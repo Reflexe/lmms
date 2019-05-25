@@ -403,8 +403,7 @@ void SampleTCOView::mouseDoubleClickEvent( QMouseEvent * )
 
 void SampleTCOView::paintEvent( QPaintEvent * pe )
 {
-	std::unique_lock<std::mutex> visualizerLock(*m_sampleBufferVisualizerMutex, std::try_to_lock);
-	if (! visualizerLock.owns_lock()) {
+	if (! m_sampleBufferVisualizerMutex->tryLock()) {
 		update();
 		return;
 	}
@@ -445,7 +444,7 @@ void SampleTCOView::paintEvent( QPaintEvent * pe )
 
 	{
 		m_sampleBufferVisualizer->draw(p);
-		visualizerLock.unlock();
+		m_sampleBufferVisualizerMutex->unlock();
 	}
 
 	QFileInfo fileInfo(m_tco->m_sampleBufferInfo->audioFile);
@@ -504,7 +503,7 @@ void SampleTCOView::updateVisualizer(QPen p, SampleBufferVisualizer::Operation o
 	//		 touch `this`; as far as we know, this could be
 	// 		 dangling.
 	m_visualizationWatcher.setFuture(runAsync([=] {
-		std::lock_guard<std::mutex> lockGuard(*visualizerMutex);
+		QMutexLocker locker{visualizerMutex.get()};
 		visualizer->update(
 				*sampleBuffer,
 				startTimeOffset,
