@@ -1,0 +1,47 @@
+name: CI
+
+on: [push]
+
+env: 
+  CMAKE_OPTS: "-DUSE_WERROR=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CCACHE=ON"
+  MAKEFLAGS: "-j6"
+
+jobs:
+  linux.gcc.appimage:
+    container:
+      image: "docker://lmmsci/linux.gcc:xenial"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Building
+      run: |
+        mkdir build && cd build
+        cmake .. $CMAKE_OPTS -DCMAKE_INSTALL_PREFIX=./install
+        make
+    - name: Build appimage
+      run: |
+        cd build
+        make install
+        make appimage || (cat appimage.log && false)
+        mkdir /tmp/artifacts
+        cp ./lmms-*.AppImage /tmp/artifacts
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: "AppImage"
+        path: "/tmp/artifacts"
+  win.mingw:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ format("docker://lmmsci/linux.mingw{0}:18.04", matrix.os_version) }} 
+    steps:
+      - name: Building
+        env: 
+          BITNESS: ${{ matrix.os_version }}
+        run: |
+          mkdir build && cd build
+          ../cmake/build_win32.sh
+          make
+    strategy:
+      matrix: 
+        os_version: [32, 64]
