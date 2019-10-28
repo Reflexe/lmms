@@ -7,7 +7,7 @@ env:
   MAKEFLAGS: "-j6"
 
 jobs:
-  linux.gcc.appimage:
+  linux_gcc_appimage:
     container:
       image: "docker://lmmsci/linux.gcc:xenial"
     runs-on: ubuntu-latest
@@ -30,7 +30,7 @@ jobs:
       with:
         name: "AppImage"
         path: "/tmp/artifacts"
-  win.mingw:
+  win_mingw:
     runs-on: ubuntu-latest
     container:
       image: ${{ format('docker://lmmsci/linux.mingw{0}:18.04', matrix.os_version) }} 
