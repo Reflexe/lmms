@@ -23,13 +23,13 @@ jobs:
         cd build
         make install
         make appimage || (cat appimage.log && false)
-        mkdir /tmp/artifacts
-        cp ./lmms-*.AppImage /tmp/artifacts
+        mkdir artifacts
+        cp ./lmms-*.AppImage artifacts
     - name: Upload artifact
       uses: actions/upload-artifact@v1.0.0
       with:
         name: "AppImage"
-        path: "/tmp/artifacts"
+        path: "/github/workspace/artifacts"
   win_mingw:
     runs-on: ubuntu-latest
     container:
@@ -40,7 +40,7 @@ jobs:
           BITNESS: ${{ matrix.os_version }}
         run: |
           mkdir build && cd build
-          ../cmake/build_win32.sh
+          sh ../cmake/build_win32.sh
           make
     strategy:
       matrix: 
