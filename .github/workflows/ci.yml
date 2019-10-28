@@ -33,7 +33,7 @@ jobs:
   win.mingw:
     runs-on: ubuntu-latest
     container:
-      image: ${{ format("docker://lmmsci/linux.mingw{0}:18.04", matrix.os_version) }} 
+      image: ${{ format('docker://lmmsci/linux.mingw{0}:18.04', matrix.os_version) }} 
     steps:
       - name: Building
         env: 
