@@ -29,15 +29,25 @@ jobs:
           key: clcache-msvc-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
             clache-msvc-${{ matrix.os_version }}
+      - name: qt cache
+        uses: actions/cache@preview
+        with:
+          path: "C:/Qt"
+          key: qt-${{ matrix.os_version }}-${{ github.ref }}
+          restore-keys: |
+            qt-${{ matrix.os_version }}
       - name: Install Qt
         run: |
-          pip install aqtinstall
-          python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop win32_msvc2015
+          if ( -not Test-Path C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION ) {
+            pip install aqtinstall
+            python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop win32_msvc2015
+          }
+
           dir C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION
       - name: Install dependencies
         run: |
 
-          vcpkg install --triplet "$env:PLATFORM-windows" --recurse fftw3 libsamplerate libsndfile sdl2
+          vcpkg install --triplet "$env:PLATFORM"-windows --recurse fftw3 libsamplerate libsndfile sdl2
           pip install clcache
         shell: powershell
       - name: Configure
