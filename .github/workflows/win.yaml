@@ -8,12 +8,11 @@ jobs:
       QT_VERSION: 5.9.8
       CLCACHE_DIR: C:\clcache
       BITNESS: ${{ matrix.os_version }}
-      PLATFORM: ${{ Array("x86", "x64")[(matrix.os_version == "64")] }}
     runs-on: windows-latest
     steps:
-      - run: $env:PLATFORM="x86"
+      - run: setx PLATFORM "x86"
         if: matrix.os_version == 32
-      - run: $env:PLATFORM="x64"
+      - run: setx PLATFORM "x64"
         if: matrix.os_version == 64
       - uses: actions/checkout@v1
       - name: Cache vcpkg packages
