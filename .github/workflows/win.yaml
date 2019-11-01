@@ -38,7 +38,7 @@ jobs:
             qt-${{ matrix.os_version }}
       - name: Install Qt
         run: |
-          if ( -not Test-Path C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION ) {
+          if ( -not (Test-Path C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION) ) {
             pip install aqtinstall
             python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop win32_msvc2015
           }
