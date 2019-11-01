@@ -28,26 +28,26 @@ jobs:
           path: "C:/clcache"
           key: clcache-msvc-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
-            clache-${{ matrix.os_version }}
+            clache-msvc-${{ matrix.os_version }}
       - name: Install Qt
         run: |
           pip install aqtinstall
-          python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop win32_msvc2015
+          python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop win"$env:BITNESS"_msvc2015
           dir C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION
       - name: Install dependencies
         run: |
 
-          vcpkg install --triplet x86-windows --recurse fftw3 libsamplerate libsndfile sdl2
+          vcpkg install --triplet "$env:PLATFORM-windows" --recurse fftw3 libsamplerate libsndfile sdl2
           pip install clcache
         shell: powershell
       - name: Configure
         run: |
-          cmake -G "Visual Studio 16 2019" -A Win${{ matrix.os_version }} `
+          cmake -G "Visual Studio 16 2019" -A Win"$env:BITNESS" `
             -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" `
             -DUSE_COMPILE_CACHE=ON                                      `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo                           `
-            -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake `
-            -DCMAKE_PREFIX_PATH="c:/Qt/Qt$env:QT_VERSION/$env:QT_VERSION/msvc2015"
+            -DCMAKE_TOOLCHAIN_FILE='$env:VCPKG_INSTALLATION_ROOT"\scripts\buildsystems\vcpkg.cmake' `
+            -DCMAKE_PREFIX_PATH='c:/Qt/Qt"$env:QT_VERSION"/"$env:QT_VERSION"/msvc2015'
       - name: Build
         run: |
           cmake --build "$env:GITHUB_WORKSPACE/build" -- /maxcpucount:4
