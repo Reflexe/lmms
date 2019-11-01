@@ -49,7 +49,6 @@ jobs:
 
           vcpkg install --triplet "$env:PLATFORM"-windows --recurse fftw3 libsamplerate libsndfile sdl2
           pip install clcache
-        shell: powershell
       - name: Configure
         run: |
           cmake -DCMAKE_GENERATOR_PLATFORM="$env:PLATFORM" `
