@@ -8,6 +8,7 @@ jobs:
       QT_VERSION: 5.9.8
       CLCACHE_DIR: C:\clcache
       BITNESS: ${{ matrix.os_version }}
+      PLATFORM: ${{ { "32": "x86", "64": "x64"}[matrix.os_version] }}
     runs-on: windows-latest
     steps:
       - run: $env:PLATFORM="x86"
