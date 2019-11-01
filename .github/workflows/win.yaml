@@ -11,7 +11,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - run: $env:PLATFORM="$(if ($env:BITNESS -eq '32') { 'x86' } else { 'x64' })"
-      - run: $env:CMAKE_PLATFORM="$(if ($env:PLATFORM -eq 'x64') { 'x64' } else { '' })"
+      - run: Add-Content -Path $Profile.CurrentUserAllHosts -Value '$env:PLATFORM = $(if ($env:BITNESS -eq "32") { "x86" } else { "x64" })'
+      - run: Add-Content -Path $Profile.CurrentUserAllHosts -Value '$env:CMAKE_PLATFORM=$(if ($env:PLATFORM -eq "x64") { "x64" } else { "" })'
       - run: echo $env:PLATFORM
       - uses: actions/checkout@v1
       - name: Cache vcpkg packages
