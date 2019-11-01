@@ -10,9 +10,9 @@ jobs:
       BITNESS: ${{ matrix.os_version }}
     runs-on: windows-latest
     steps:
-      - run: setx PLATFORM "x86"
+      - run: $env:PLATFORM="x86"
         if: matrix.os_version == 32
-      - run: setx PLATFORM "x64"
+      - run: $env:PLATFORM="x64"
         if: matrix.os_version == 64
       - uses: actions/checkout@v1
       - name: Cache vcpkg packages
@@ -46,7 +46,6 @@ jobs:
           dir C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION
       - name: Install dependencies
         run: |
-
           vcpkg install --triplet "$env:PLATFORM"-windows --recurse fftw3 libsamplerate libsndfile sdl2
           pip install clcache
       - name: Configure
