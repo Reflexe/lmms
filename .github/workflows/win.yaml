@@ -42,11 +42,11 @@ jobs:
         shell: powershell
       - name: Configure
         run: |
-          cmake -G "Visual Studio 16 2019" -A Win${{ matrix.os_version }} \
-            -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" \
-            -DUSE_COMPILE_CACHE=ON                                      \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo                           \
-            -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake
+          cmake -G "Visual Studio 16 2019" -A Win${{ matrix.os_version }} `
+            -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" `
+            -DUSE_COMPILE_CACHE=ON                                      `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo                           `
+            -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake `
             -DCMAKE_PREFIX_PATH="c:/Qt/Qt$env:QT_VERSION/$env:QT_VERSION/msvc2015"
       - name: Build
         run: |
