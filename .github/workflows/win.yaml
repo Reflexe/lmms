@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - run: echo $env:PLATFORM
-      - run: echo Invoke-Expression($env:PLATFORM)
+      - run: echo (Invoke-Expression($env:PLATFORM))
       - uses: actions/checkout@v1
       - name: Cache vcpkg packages
         uses: actions/cache@preview
