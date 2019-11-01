@@ -8,12 +8,12 @@ jobs:
       QT_VERSION: 5.9.8
       CLCACHE_DIR: C:\clcache
       BITNESS: ${{ matrix.os_version }}
+      PLATFORM: $(if ($env:BITNESS -eq "32") { "x86" } else { "x64" })
+      CMAKE_PLATFORM: $(if ($env:PLATFORM -eq "x64") { "x64" } else { "" })
     runs-on: windows-latest
     steps:
-      - run: $env:PLATFORM="$(if ($env:BITNESS -eq '32') { 'x86' } else { 'x64' })"
-      - run: Add-Content -Path $Profile.CurrentUserAllHosts -Value '$env:PLATFORM = $(if ($env:BITNESS -eq "32") { "x86" } else { "x64" })'
-      - run: Add-Content -Path $Profile.CurrentUserAllHosts -Value '$env:CMAKE_PLATFORM=$(if ($env:PLATFORM -eq "x64") { "x64" } else { "" })'
       - run: echo $env:PLATFORM
+      - run: echo Invoke-Expression($env:PLATFORM)
       - uses: actions/checkout@v1
       - name: Cache vcpkg packages
         uses: actions/cache@preview
