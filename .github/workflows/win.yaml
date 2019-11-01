@@ -1,0 +1,67 @@
+name: CI
+on:
+  - push
+  - pull_request
+jobs:
+  msvc:
+    env:
+      QT_VERSION: 5.9.8
+      CLCACHE_DIR: C:\clcache
+      BITNESS: ${{ matrix.os_version }}
+    runs-on: windows-latest
+    steps:
+      - run: $env:PLATFORM="x86"
+        if: matrix.os_version == 32
+      - run: $env:PLATFORM="x64"
+        if: matrix.os_version == 64
+      - uses: actions/checkout@v1
+      - name: Cache vcpkg packages
+        uses: actions/cache@preview
+        with:
+          path: "C:/vcpkg/installed"
+          key: vcpkg
+          restore-keys: |
+            vcpkg
+      - name: clcache
+        uses: actions/cache@preview
+        with:
+          path: "C:/clcache"
+          key: clcache-msvc-${{ matrix.os_version }}-${{ github.ref }}
+          restore-keys: |
+            clache-${{ matrix.os_version }}
+      - name: Install Qt
+        run: |
+          pip install aqtinstall
+          python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop win32_msvc2015
+          dir C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION
+      - name: Install dependencies
+        run: |
+
+          vcpkg install --triplet x86-windows --recurse fftw3 libsamplerate libsndfile sdl2
+          pip install clcache
+        shell: powershell
+      - name: Configure
+        run: |
+          cmake -G "Visual Studio 16 2019" -A Win${{ matrix.os_version }}`
+            -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" `
+            -DUSE_COMPILE_CACHE=ON                                      `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo                           `
+            -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake
+            -DCMAKE_PREFIX_PATH="c:/Qt/Qt$env:QT_VERSION/$env:QT_VERSION/msvc2015"
+      - name: Build
+        run: |
+          cmake --build "$env:GITHUB_WORKSPACE/build" -- /maxcpucount:4
+      - name: Create Installer
+        run: |
+          cmake --build . --target package
+          mkdir /github/workspace/artifacts
+          cp build\lmms-*.exe /github/workspace/artifacts
+        shell: bash
+      - name: Upload artifact
+        uses: actions/upload-artifact@v1.0.0
+        with:
+          name: "Installer"
+          path: "/github/workspace/artifacts"
+    strategy:
+      matrix:
+        os_version: [32, 64]
