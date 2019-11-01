@@ -42,7 +42,7 @@ jobs:
         shell: powershell
       - name: Configure
         run: |
-          cmake -G "Visual Studio 16 2019" -A Win"$env:BITNESS" `
+          cmake -DCMAKE_GENERATOR_PLATFORM="$env:PLATFORM" `
             -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" `
             -DUSE_COMPILE_CACHE=ON                                      `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo                           `
