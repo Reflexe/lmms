@@ -52,7 +52,7 @@ jobs:
           pip install clcache
       - name: Configure
         run: |
-          cmake -DCMAKE_GENERATOR_PLATFORM="$(Invoke-Expression($env:CMAKE_PLATFORM))" `
+          cmake -DCMAKE_GENERATOR_PLATFORM="$(Invoke-Expression($env:PLATFORM))" `
             -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" `
             -DUSE_COMPILE_CACHE=ON                                      `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo                           `
