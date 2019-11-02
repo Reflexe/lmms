@@ -24,13 +24,12 @@ jobs:
           key: vcpkg-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
             vcpkg-${{ matrix.os_version }}-
-      - name: clcache
-        uses: actions/cache@preview
+      - uses: actions/cache@preview
         with:
-          path: "C:/clcache"
+          path: "C:\\clcache"
           key: clcache-msvc-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
-            clache-msvc-${{ matrix.os_version }}-
+            clcache-msvc-${{ matrix.os_version }}-
       - name: qt cache
         uses: actions/cache@preview
         with:
