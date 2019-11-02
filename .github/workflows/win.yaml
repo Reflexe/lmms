@@ -26,18 +26,19 @@ jobs:
           restore-keys: |
             vcpkg-${{ matrix.os_version }}-
       - uses: actions/cache@preview
+        name: clcache
         with:
           path: "C:/clcache"
           key: clcache-msvc-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
             clcache-msvc-${{ matrix.os_version }}-
-      - name: qt cache
-        uses: actions/cache@preview
-        with:
-          path: "C:/Qt"
-          key: qt-${{ matrix.os_version }}-${{ github.ref }}
-          restore-keys: |
-            qt-${{ matrix.os_version }}-
+#      - name: qt cache
+#        uses: actions/cache@preview
+#        with:
+#          path: "C:/Qt"
+#          key: qt-${{ matrix.os_version }}-${{ github.ref }}
+#          restore-keys: |
+#            qt-${{ matrix.os_version }}-
       - name: Install Qt
         run: |
           if ( -not (Test-Path C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION) ) {
