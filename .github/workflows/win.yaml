@@ -42,7 +42,7 @@ jobs:
         run: |
           if ( -not (Test-Path C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION) ) {
             pip install aqtinstall
-            python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop "win$env:BITNESS_$(Invoke-Expression($env:QT_PLATFORM))"
+            python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop "win$($env:BITNESS)_$(Invoke-Expression($env:QT_PLATFORM))"
           }
 
           dir C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION
