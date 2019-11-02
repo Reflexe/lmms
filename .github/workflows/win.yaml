@@ -21,23 +21,23 @@ jobs:
         uses: actions/cache@preview
         with:
           path: "C:/vcpkg/installed"
-          key: vcpkg
+          key: vcpkg-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
-            vcpkg
+            vcpkg-${{ matrix.os_version }}-
       - name: clcache
         uses: actions/cache@preview
         with:
           path: "C:/clcache"
           key: clcache-msvc-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
-            clache-msvc-${{ matrix.os_version }}
+            clache-msvc-${{ matrix.os_version }}-
       - name: qt cache
         uses: actions/cache@preview
         with:
           path: "C:/Qt"
           key: qt-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
-            qt-${{ matrix.os_version }}
+            qt-${{ matrix.os_version }}-
       - name: Install Qt
         run: |
           if ( -not (Test-Path C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION) ) {
@@ -70,13 +70,13 @@ jobs:
         continue-on-error: true
         run: |
           cmake --build "$env:GITHUB_WORKSPACE/build" --target package
-          mkdir /github/workspace/artifacts
-          cp "$env:GITHUB_WORKSPACE/build"\lmms-*.exe /github/workspace/artifacts
+          mkdir $env:GITHUB_WORKSPACE/artifacts
+          cp "$env:GITHUB_WORKSPACE/build/lmms-*.exe" -Destination "$env:GITHUB_WORKSPACE/artifacts"
       - name: Upload artifact
         uses: actions/upload-artifact@v1.0.0
         with:
           name: "Installer"
-          path: "/github/workspace/artifacts"
+          path: "$env:GITHUB_WORKSPACE/artifacts"
     strategy:
       matrix:
         os_version: [32, 64]
