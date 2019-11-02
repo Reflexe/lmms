@@ -70,7 +70,7 @@ jobs:
         run: |
           cmake --build "$env:GITHUB_WORKSPACE/build" --target package
           mkdir C:\artifacts
-          cp "'$env:GITHUB_WORKSPACE'/build/lmms-*.exe" -Destination C:\artifacts
+          cp "$env:GITHUB_WORKSPACE/build/lmms-*.exe" "C:\artifacts"
       - name: Upload artifact
         uses: actions/upload-artifact@v1.0.0
         continue-on-error: true
