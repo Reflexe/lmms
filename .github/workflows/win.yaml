@@ -51,6 +51,7 @@ jobs:
           vcpkg install --triplet "$(Invoke-Expression($env:PLATFORM))-windows" --recurse fftw3 libsamplerate libsndfile sdl2
           pip install clcache
       - name: Configure
+        continue-on-error: true
         run: |
           cmake -G "Visual Studio 16 2019" -A "$(Invoke-Expression($env:CMAKE_PLATFORM))"`
             -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" `
@@ -59,9 +60,11 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT"\scripts\buildsystems\vcpkg.cmake `
             -DCMAKE_PREFIX_PATH=c:/Qt/Qt"$env:QT_VERSION"/"$env:QT_VERSION"/$(Invoke-Expression($env:QT_PLATFORM))
       - name: Build
+        continue-on-error: true
         run: |
           cmake --build "$env:GITHUB_WORKSPACE/build" -- /maxcpucount:4
       - name: Create Installer
+        continue-on-error: true
         run: |
           cmake --build "$env:GITHUB_WORKSPACE/build" --target package
           mkdir /github/workspace/artifacts
