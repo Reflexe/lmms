@@ -74,6 +74,7 @@ jobs:
           cp "'$(env:GITHUB_WORKSPACE)'/build/lmms-*.exe" -Destination "'$env:GITHUB_WORKSPACE'/artifacts"
       - name: Upload artifact
         uses: actions/upload-artifact@v1.0.0
+        continue-on-error: true
         with:
           name: "Installer"
           path: "$env:GITHUB_WORKSPACE/artifacts"
