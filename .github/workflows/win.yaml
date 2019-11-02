@@ -6,7 +6,7 @@ jobs:
   msvc:
     env:
       QT_VERSION: 5.14.0
-      CLCACHE_DIR: C:/clcache
+      CLCACHE_DIR: "C:/clcache"
       BITNESS: ${{ matrix.os_version }}
       PLATFORM: $(if ($env:BITNESS -eq "32") { "x86" } else { "x64" })
       CMAKE_PLATFORM: $(if ($env:BITNESS -eq "64") { "x64" } else { "Win32" })
@@ -14,6 +14,7 @@ jobs:
 
     runs-on: windows-latest
     steps:
+      - run: mkdir C:/clcache
       - run: echo $env:PLATFORM
       - run: echo (Invoke-Expression($env:PLATFORM))
       - uses: actions/checkout@v1
