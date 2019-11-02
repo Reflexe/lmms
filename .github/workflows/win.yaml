@@ -10,6 +10,8 @@ jobs:
       BITNESS: ${{ matrix.os_version }}
       PLATFORM: $(if ($env:BITNESS -eq "32") { "x86" } else { "x64" })
       CMAKE_PLATFORM: $(if ($env:BITNESS -eq "64") { "x64" } else { "" })
+      QT_PLATFORM: $(if ($env:BITNESS -eq "64") { "msvc2017_64" } else { "msvc2017" })
+
     runs-on: windows-latest
     steps:
       - run: echo $env:PLATFORM
@@ -40,7 +42,7 @@ jobs:
         run: |
           if ( -not (Test-Path C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION) ) {
             pip install aqtinstall
-            python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop win32_msvc2017
+            python -m aqt install --outputdir C:\Qt $env:QT_VERSION windows desktop "win32_$(Invoke-Expression($env:QT_PLATFORM))"
           }
 
           dir C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION
@@ -55,7 +57,7 @@ jobs:
             -DUSE_COMPILE_CACHE=ON                                      `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo                           `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT"\scripts\buildsystems\vcpkg.cmake `
-            -DCMAKE_PREFIX_PATH=c:/Qt/Qt"$env:QT_VERSION"/"$env:QT_VERSION"/msvc2017
+            -DCMAKE_PREFIX_PATH=c:/Qt/Qt"$env:QT_VERSION"/"$env:QT_VERSION"/$(Invoke-Expression($env:QT_PLATFORM))
       - name: Build
         run: |
           cmake --build "$env:GITHUB_WORKSPACE/build" -- /maxcpucount:4
