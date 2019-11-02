@@ -5,7 +5,7 @@ on:
 jobs:
   msvc:
     env:
-      QT_VERSION: 5.9.8
+      QT_VERSION: 5.12.5
       CLCACHE_DIR: C:\clcache
       BITNESS: ${{ matrix.os_version }}
       PLATFORM: $(if ($env:BITNESS -eq "32") { "x86" } else { "x64" })
