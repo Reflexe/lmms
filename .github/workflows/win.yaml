@@ -6,7 +6,7 @@ jobs:
   msvc:
     env:
       QT_VERSION: 5.14.0
-      CLCACHE_DIR: C:\clcache
+      CLCACHE_DIR: C:/clcache
       BITNESS: ${{ matrix.os_version }}
       PLATFORM: $(if ($env:BITNESS -eq "32") { "x86" } else { "x64" })
       CMAKE_PLATFORM: $(if ($env:BITNESS -eq "64") { "x64" } else { "Win32" })
@@ -26,7 +26,7 @@ jobs:
             vcpkg-${{ matrix.os_version }}-
       - uses: actions/cache@preview
         with:
-          path: "C:\\clcache"
+          path: "C:/clcache"
           key: clcache-msvc-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
             clcache-msvc-${{ matrix.os_version }}-
@@ -69,14 +69,14 @@ jobs:
         continue-on-error: true
         run: |
           cmake --build "$env:GITHUB_WORKSPACE/build" --target package
-          mkdir "'$(env:GITHUB_WORKSPACE)'/artifacts"
-          cp "'$(env:GITHUB_WORKSPACE)'/build/lmms-*.exe" -Destination "'$env:GITHUB_WORKSPACE'/artifacts"
+          mkdir C:\artifacts
+          cp "'$env:GITHUB_WORKSPACE'/build/lmms-*.exe" -Destination C:\artifacts
       - name: Upload artifact
         uses: actions/upload-artifact@v1.0.0
         continue-on-error: true
         with:
           name: "Installer"
-          path: "$env:GITHUB_WORKSPACE/artifacts"
+          path:  C:\artifacts
     strategy:
       matrix:
         os_version: [32, 64]
