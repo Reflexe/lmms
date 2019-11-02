@@ -9,7 +9,7 @@ jobs:
       CLCACHE_DIR: C:\clcache
       BITNESS: ${{ matrix.os_version }}
       PLATFORM: $(if ($env:BITNESS -eq "32") { "x86" } else { "x64" })
-      CMAKE_PLATFORM: $(if ($env:BITNESS -eq "64") { "x64" } else { "" })
+      CMAKE_PLATFORM: $(if ($env:BITNESS -eq "64") { "x64" } else { "Win32" })
       QT_PLATFORM: $(if ($env:BITNESS -eq "64") { "msvc2017_64" } else { "msvc2017" })
 
     runs-on: windows-latest
@@ -52,7 +52,7 @@ jobs:
           pip install clcache
       - name: Configure
         run: |
-          cmake -DCMAKE_GENERATOR_PLATFORM="$(Invoke-Expression($env:PLATFORM))" `
+          cmake -G "Visual Studio 16 2019" -A "$(Invoke-Expression($env:CMAKE_PLATFORM))"`
             -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" `
             -DUSE_COMPILE_CACHE=ON                                      `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo                           `
