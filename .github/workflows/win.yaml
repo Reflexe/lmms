@@ -61,10 +61,9 @@ jobs:
           cmake --build "$env:GITHUB_WORKSPACE/build" -- /maxcpucount:4
       - name: Create Installer
         run: |
-          cmake --build . --target package
+          cmake --build "$env:GITHUB_WORKSPACE/build" --target package
           mkdir /github/workspace/artifacts
-          cp build\lmms-*.exe /github/workspace/artifacts
-        shell: bash
+          cp "$env:GITHUB_WORKSPACE/build"\lmms-*.exe /github/workspace/artifacts
       - name: Upload artifact
         uses: actions/upload-artifact@v1.0.0
         with:
