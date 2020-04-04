@@ -477,8 +477,8 @@ void SampleTCOView::paintEvent( QPaintEvent * pe )
 
 void SampleTCOView::updateVisualizer(QPen p, SampleBufferVisualizer::Operation operation) {
 	auto timeSig = TimeSig(Engine::getSong()->getTimeSigModel());
-	auto realTicksPerDefaultTicks = float(float(MidiTime::ticksPerTact(timeSig) / MidiTime::ticksPerTact()));
-	auto normalizedPixelsPerTact = pixelsPerTact() * realTicksPerDefaultTicks;
+	auto realTicksPerDefaultTicks = float(float(MidiTime::ticksPerBar(timeSig) / MidiTime::ticksPerBar()));
+	auto normalizedPixelsPerTact = pixelsPerBar() * realTicksPerDefaultTicks;
 	auto normalizedFramesPerTick =
 			Engine::framesPerTick(m_tco->m_sampleBufferInfo->sampleRate) * realTicksPerDefaultTicks;
 

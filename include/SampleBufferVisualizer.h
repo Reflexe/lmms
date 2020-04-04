@@ -136,7 +136,7 @@ private:
 	 */
 	float pixelsPerTime (const MidiTime &time)
 	{
-		return ((time * m_pixelsPerTact) / MidiTime::ticksPerTact());
+		return ((time * m_pixelsPerTact) / MidiTime::ticksPerBar());
 	}
 
 	/**

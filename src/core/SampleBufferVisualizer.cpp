@@ -100,16 +100,16 @@ void SampleBufferVisualizer::appendMultipleTacts(const SampleBuffer &sampleBuffe
 		bool isCompleteTact = false;
 
 		// we have more tacts to draw. finish the current one.
-		if (MidiTime(m_cachedTime+offsetFromTact).getTact() < sampleLength.getTact()) {
+		if (MidiTime(m_cachedTime+offsetFromTact).getBar() < sampleLength.getBar()) {
 			// Paint what left from the current tact.
-			totalTime = MidiTime::ticksPerTact() - offsetFromTact;
+			totalTime = MidiTime::ticksPerBar() - offsetFromTact;
 			isCompleteTact = true;
 		} else {
 			// Draw only the ticks left in the current tact.
 			totalTime = sampleLength - m_cachedTime - m_currentPixmap.totalTime;
 		}
 
-		Q_ASSERT((offsetFromTact + totalTime) <= MidiTime::ticksPerTact());
+		Q_ASSERT((offsetFromTact + totalTime) <= MidiTime::ticksPerBar());
 
 		if (pixelsPerTime(totalTime) < 1) {
 			// We can't paint it.
@@ -168,7 +168,7 @@ bool SampleBufferVisualizer::appendTact(const SampleBuffer &sampleBuffer,
 
 	m_currentPixmap.rect = getRectForSampleFragment (parentRect,
 													 0,
-													 MidiTime::ticksPerTact());
+													 MidiTime::ticksPerBar());
 	if (m_currentPixmap.pixmap.isNull()) {
 		m_currentPixmap.pixmap = QPixmap(m_currentPixmap.rect.size());
 		m_currentPixmap.pixmap.fill(Qt::transparent);
