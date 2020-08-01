@@ -162,8 +162,7 @@ private:
 	sample_t * m_lfoShapeData;
 	sample_t m_random;
 	bool m_bad_lfoShapeData;
-	SampleBuffer m_userWave;
-	SampleBuffer::InfoUpdatingValue m_userWaveInfo;
+	std::unique_ptr<SampleBuffer> m_userWave;
 
 	enum LfoShapes
 	{

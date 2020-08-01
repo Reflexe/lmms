@@ -584,9 +584,9 @@ void graphModel::setWaveToNoise()
 
 QString graphModel::setWaveToUser()
 {
-	auto sampleBuffer = std::unique_ptr<SampleBuffer>{new SampleBuffer};
-
-	QString fileName = sampleBuffer->openAndSetWaveformFile();
+	QString fileName = SampleBuffer::openAndSetWaveformFile();
+	
+	auto sampleBuffer = std::unique_ptr<SampleBuffer>{new SampleBuffer(fileName)};
 	if( fileName.isEmpty() == false )
 	{
 		for( int i = 0; i < length(); i++ )

@@ -116,6 +116,8 @@ private slots:
 
 	void zoomingChanged();
 
+	float maximumPixelsPerBar() const;
+	
 private:
 	void keyPressEvent( QKeyEvent * ke ) override;
 	void wheelEvent( QWheelEvent * we ) override;

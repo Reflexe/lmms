@@ -8,6 +8,7 @@
 #include "MemoryManager.h"
 #include "lmms_basics.h"
 #include "lmms_export.h"
+#include "ringbuffer/ringbuffer.h"
 
 namespace internal {
 	inline sample_rate_t mixerSampleRate() {
@@ -29,20 +30,6 @@ namespace internal {
 
 		f_cnt_t frames() const {
 			return static_cast<f_cnt_t>(m_data.size());
-		}
-
-		void addData(const DataVector &vector, sample_rate_t sampleRate) {
-			if (sampleRate != m_sampleRate) {
-				auto resampledVector = resampleData(vector, sampleRate, m_sampleRate);
-				m_data.insert(m_data.end(), resampledVector.cbegin(), resampledVector.cend());
-			} else {
-				m_data.insert(m_data.end(), vector.cbegin(), vector.cend());
-			}
-		}
-
-		void resetData(DataVector &&newData, sample_rate_t dataSampleRate) {
-			m_sampleRate = dataSampleRate;
-			m_data = std::move(newData);
 		}
 
 		void reverse() {
@@ -82,7 +69,6 @@ namespace internal {
 
 		DataVector m_data;
 		float m_frequency = BaseFreq;
-		float m_amplification = 1.0f;
 		sample_rate_t m_sampleRate = internal::mixerSampleRate();
 	public:
 		float getFrequency() const {
@@ -96,16 +82,6 @@ namespace internal {
 		void setFrequency(float frequency)
 		{
 			m_frequency = frequency;
-		}
-
-		float getAmplification() const
-		{
-			return m_amplification;
-		}
-
-		void setAmplification(float amplification)
-		{
-			m_amplification = amplification;
 		}
 	};
 }

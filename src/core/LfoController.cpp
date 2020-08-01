@@ -45,8 +45,7 @@ LfoController::LfoController( Model * _parent ) :
 	m_phaseOffset( 0 ),
 	m_currentPhase( 0 ),
 	m_sampleFunction( &Oscillator::sinSample ),
-	m_userDefSampleBuffer( new SampleBuffer ),
-	m_userDefSampleBufferInfo{m_userDefSampleBuffer->createUpdatingValue(this)}
+	m_userDefSampleBuffer( new SampleBuffer )
 {
 	setSampleExact( true );
 	connect( &m_waveModel, SIGNAL( dataChanged() ),
@@ -72,7 +71,6 @@ LfoController::LfoController( Model * _parent ) :
 
 LfoController::~LfoController()
 {
-	delete m_userDefSampleBuffer;
 	m_baseModel.disconnect( this );
 	m_speedModel.disconnect( this );
 	m_amountModel.disconnect( this );
@@ -193,7 +191,7 @@ void LfoController::saveSettings( QDomDocument & _doc, QDomElement & _this )
 	m_phaseModel.saveSettings( _doc, _this, "phase" );
 	m_waveModel.saveSettings( _doc, _this, "wave" );
 	m_multiplierModel.saveSettings( _doc, _this, "multiplier" );
-	_this.setAttribute( "userwavefile" , m_userDefSampleBufferInfo->audioFile);
+	_this.setAttribute( "userwavefile" , m_userDefSampleBuffer->audioFileName());
 }
 
 
@@ -208,7 +206,8 @@ void LfoController::loadSettings( const QDomElement & _this )
 	m_phaseModel.loadSettings( _this, "phase" );
 	m_waveModel.loadSettings( _this, "wave" );
 	m_multiplierModel.loadSettings( _this, "multiplier" );
-	m_userDefSampleBuffer->setAudioFile( _this.attribute("userwavefile" ) );
+	
+	m_userDefSampleBuffer.reset(new SampleBuffer(_this.attribute("userwavefile" )));
 
 	updateSampleFunction();
 }

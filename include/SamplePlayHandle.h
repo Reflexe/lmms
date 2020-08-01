@@ -41,8 +41,9 @@ class AudioPort;
 class SamplePlayHandle : public PlayHandle
 {
 public:
-	SamplePlayHandle( const std::shared_ptr<SampleBuffer> &sampleBuffer, bool ownAudioPort = true );
-	SamplePlayHandle( const QString& sampleFile );
+	SamplePlayHandle( std::shared_ptr<SampleBuffer> sampleBuffer, 
+			const SampleBufferPlayInfo &playInfo, 
+			bool ownAudioPort = true );
 	SamplePlayHandle( SampleTCO* tco );
 	virtual ~SamplePlayHandle();
 
@@ -80,7 +81,7 @@ public:
 
 private:
 	std::shared_ptr<SampleBuffer> m_sampleBuffer;
-	SampleBuffer::SampleBufferInfo m_sampleBufferInfo;
+	SampleBufferPlayInfo m_playInfo;
 	bool m_doneMayReturnTrue;
 
 	f_cnt_t m_frame;

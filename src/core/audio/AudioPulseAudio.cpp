@@ -67,7 +67,7 @@ AudioPulseAudio::AudioPulseAudio( bool & _success_ful, Mixer*  _mixer ) :
 
 	// It does work. But it has clicking noises every few seconds.
 	// have no idea way.
-	m_supportsCapture = false;
+	m_supportsCapture = true;
 
 	_success_ful = true;
 }

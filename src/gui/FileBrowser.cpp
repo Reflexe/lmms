@@ -425,8 +425,8 @@ void FileBrowserTreeWidget::mousePressEvent(QMouseEvent * me )
 								24, 24 ), 0 );
 			qApp->processEvents(
 					QEventLoop::ExcludeUserInputEvents );
-			SamplePlayHandle * s = new SamplePlayHandle(
-								f->fullName() );
+			auto sampleBuffer = std::make_shared<SampleBuffer>(f->fullName());
+			SamplePlayHandle * s = new SamplePlayHandle(sampleBuffer, SampleBufferPlayInfo(sampleBuffer->frames()));
 			s->setDoneMayReturnTrue( false );
 			m_previewPlayHandle = s;
 			delete tf;

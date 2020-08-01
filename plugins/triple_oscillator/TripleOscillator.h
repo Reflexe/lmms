@@ -60,8 +60,7 @@ private:
 	FloatModel m_stereoPhaseDetuningModel;
 	IntModel m_waveShapeModel;
 	IntModel m_modulationAlgoModel;
-	SampleBuffer* m_sampleBuffer;
-	SampleBuffer::InfoUpdatingValue m_sampleBufferInfo;
+	std::unique_ptr<SampleBuffer> m_sampleBuffer;
 
 	float m_volumeLeft;
 	float m_volumeRight;

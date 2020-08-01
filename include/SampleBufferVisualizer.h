@@ -28,6 +28,7 @@
 
 #include "MidiTime.h"
 #include "SampleBuffer.h"
+#include "ringbuffer/ringbuffer.h"
 
 
 /**
@@ -57,10 +58,16 @@ class SampleBufferVisualizer
 	};
 
 public:
+	typedef ringbuffer_reader_t<sampleFrame> ReaderType;
+	typedef decltype(std::declval<ReaderType>().read(0)) ReaderDataType;
+	
+	struct DataType {
+		const sampleFrame *data;
+		f_cnt_t frames;
+	};
+	
 	SampleBufferVisualizer();
-
-	using Operation=SampleBuffer::UpdateType;
-
+	
 	/**
 	 * @brief Update the cache before drawing it.
 	 * @param sampleBuffer		The sample buffer to visualize.
@@ -73,36 +80,46 @@ public:
 	 * @param pen				The pen setting we should paint with.
 	 * @param operation			Should we clear the cache or just append in the end?
 	 */
-	void update(const SampleBuffer &sampleBuffer,
-				MidiTime sampleStartOffset,
-				MidiTime sampleLength,
-				const QRect &parentRect,
-				float pixelsPerTact, f_cnt_t framesPerTact,
-				const QPen &pen,
-				Operation operation);
+	void update(ReaderType reader, MidiTime sampleStartOffset,
+				MidiTime sampleLength, const QRect &parentRect, float pixelsPerTact,
+				f_cnt_t framesPerTact, const QPen &pen);
+	
+	
+	void update(const SampleBuffer &buffer, MidiTime sampleStartOffset,
+				MidiTime sampleLength, const QRect &parentRect, float pixelsPerTact,
+				f_cnt_t framesPerTact, const QPen &pen);
+
+	void update(const DataType& data, MidiTime sampleStartOffset,
+				MidiTime sampleLength, const QRect &parentRect, float pixelsPerTact,
+				f_cnt_t framesPerTact, const QPen &pen);
 
 	/**
 	 * @brief draw		Draw the current cache into @a painter.
 	 */
 	void draw(QPainter &painter);
+	
+	/**
+	 * @brief Clear the cache.
+	 */
+	void clear();
 
 private:
 	/**
-	 * @brief appendMultipleTacts	Add one or more cache lines or
+	 * @brief appendMultipleBars	Add one or more cache lines or
 	 *								just add data to an existing
 	 *								cache line.
-	 * @param sampleBuffer			The sample buffer to visualize.
+	 * @param data				The data to visualize.
 	 * @param sampleLength			Time to visualize.
 	 * @param parentRect			The rectangle we should paint in.
 	 * @param pen					The pen setting we should paint with.
 	 */
-	void appendMultipleTacts(const SampleBuffer &sampleBuffer,
-							 MidiTime sampleLength,
-							 const QRect &parentRect, const QPen &pen);
+	void appendMultipleBars(const DataType &data,
+							MidiTime sampleLength,
+							const QRect &parentRect, const QPen &pen);
 
 	/**
-	 * @brief appendTact	Add data to m_currentPixmap.
-	 * @param sampleBuffer	The sample buffer to visualize.
+	 * @brief appendBar	Add data to m_currentPixmap.
+	 * @param data	The sample buffer to visualize.
 	 * @param totalTime		How much time we should visualize from
 	 *						m_currentPixmap.totalTime.
 	 * @param parentRect	The rectangle we should paint in.
@@ -111,9 +128,9 @@ private:
 	 * @return				true if we have painted at least one
 	 *						pixel; false otherwise.
 	 */
-	bool appendTact(const SampleBuffer &sampleBuffer,
-					const MidiTime &totalTime,
-					const QRect &parentRect, const QPen &pen, bool isLastInTact);
+	bool appendBar(const DataType &data,
+				   const MidiTime &totalTime,
+				   const QRect &parentRect, const QPen &pen, bool isLastInTact);
 
 	/**
 	 * @brief getRectForSampleFragment	Construct a rectangle for
@@ -130,11 +147,15 @@ private:
 								   MidiTime totalTime,
 								   bool forceNotZeroWidth=false);
 
+	std::pair<QPolygonF, QPolygonF>
+	visualizeToPoly(const DataType &data, const QRect &_dr, const QRect &_clip, f_cnt_t _from_frame,
+					f_cnt_t _to_frame) const;
+
 	/**
-	 * @brief pixelsPerTime		Calculate how much pixels a visualization of
-	 *							@a time would take.
-	 */
-	float pixelsPerTime (const MidiTime &time)
+ 	* @brief pixelsPerTime		Calculate how much pixels a visualization of
+ 	*							@a time would take.
+	*/
+	float pixelsPerTime (const MidiTime &time) const
 	{
 		return ((time * m_pixelsPerTact) / MidiTime::ticksPerBar());
 	}

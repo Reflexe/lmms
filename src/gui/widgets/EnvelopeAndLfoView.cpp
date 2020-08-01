@@ -318,8 +318,9 @@ void EnvelopeAndLfoView::dropEvent( QDropEvent * _de )
 	QString value = StringPairDrag::decodeValue( _de );
 	if( type == "samplefile" )
 	{
-		m_params->m_userWave.setAudioFile(
-					StringPairDrag::decodeValue( _de ) );
+		/* TODO: am I allowed to modify m_userWave from here? */
+		m_params->m_userWave.reset(new SampleBuffer(
+					StringPairDrag::decodeValue( _de )) );
 		m_userLfoBtn->model()->setValue( true );
 		m_params->m_lfoWaveModel.setValue(EnvelopeAndLfoParameters::UserDefinedWave);
 		_de->accept();
@@ -328,9 +329,9 @@ void EnvelopeAndLfoView::dropEvent( QDropEvent * _de )
 	else if( type == QString( "tco_%1" ).arg( Track::SampleTrack ) )
 	{
 		DataFile dataFile( value.toUtf8() );
-		m_params->m_userWave.setAudioFile( dataFile.content().
+		m_params->m_userWave.reset( new SampleBuffer(dataFile.content().
 					firstChildElement().firstChildElement().
-					firstChildElement().attribute( "src" ) );
+					firstChildElement().attribute( "src" )) );
 		m_userLfoBtn->model()->setValue( true );
 		m_params->m_lfoWaveModel.setValue(EnvelopeAndLfoParameters::UserDefinedWave);
 		_de->accept();
@@ -477,7 +478,7 @@ void EnvelopeAndLfoView::paintEvent( QPaintEvent * )
 					val = m_randomGraph;
 					break;
 				case EnvelopeAndLfoParameters::UserDefinedWave:
-					val = m_params->m_userWave.
+					val = m_params->m_userWave->
 							userWaveSample( phase );
 					break;
 			}
@@ -513,7 +514,7 @@ void EnvelopeAndLfoView::lfoUserWaveChanged()
 	if( m_params->m_lfoWaveModel.value() ==
 				EnvelopeAndLfoParameters::UserDefinedWave )
 	{
-		if( m_params->m_userWaveInfo->frames <= 1 )
+		if( m_params->m_userWave->frames() <= 1 )
 		{
 			TextFloat::displayMessage( tr( "Hint" ),
 				tr( "Drag and drop a sample into this window." ),

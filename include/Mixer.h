@@ -37,7 +37,7 @@
 #include "Note.h"
 #include "fifo_buffer.h"
 #include "MixerProfiler.h"
-
+#include "ringbuffer/ringbuffer.h"
 
 class AudioDevice;
 class MidiClient;
@@ -71,6 +71,9 @@ class LMMS_EXPORT Mixer : public QObject
 	Q_OBJECT
 
 public:
+	typedef ringbuffer_t<sampleFrame> RingBufferType;
+	typedef ringbuffer_reader_t<sampleFrame> RingBufferReaderType;
+	
 	/**
 	 * @brief RAII helper for requestChangesInModel.
 	 * Used by Mixer::requestChangesGuard.
@@ -335,16 +338,6 @@ public:
 
 	void pushInputFrames(const sampleFrame *_ab, const f_cnt_t _frames);
 
-	inline const sampleFrame * inputBuffer()
-	{
-		return m_inputBuffer[ m_inputBufferRead ];
-	}
-
-	inline f_cnt_t inputBufferFrames() const
-	{
-		return m_inputBufferFrames[ m_inputBufferRead ];
-	}
-
 	inline const surroundSampleFrame * nextBuffer()
 	{
 		return hasFifoWriter() ? m_fifo->read() : renderNextBuffer();
@@ -363,16 +356,14 @@ public:
 	{
 		return RequestChangesGuard{this};
 	}
-
-	template<class Callable, class ReturnT=decltype(std::declval<Callable>()())>
-	ReturnT runWhileNotRendering(Callable &&callable) {
-		auto guard = this->requestChangesGuard();
-		return callable();
-	}
-
+	
 	static bool isAudioDevNameValid(QString name);
 	static bool isMidiDevNameValid(QString name);
 
+	RingBufferReaderType createInputReader() {
+		//FIXME: not thread safe
+		return RingBufferReaderType(m_inputBuffer);
+	}
 
 signals:
 	void qualitySettingsChanged();
@@ -405,7 +396,7 @@ private:
 
 	Mixer( bool renderOnly );
 	virtual ~Mixer();
-
+	
 	void startProcessing( bool _needs_fifo = true );
 	void stopProcessing();
 
@@ -421,19 +412,17 @@ private:
 	//! Called by the audio thread to give control to other threads,
 	//! such that they can do changes in the model (like e.g. removing effects)
 	void runChangesInModel();
+	
+	static fpp_t getFramesPerPeriod(bool renderOnly); 
 
 	bool m_renderOnly;
 
 	QVector<AudioPort *> m_audioPorts;
 
 	fpp_t m_framesPerPeriod;
-
-	sampleFrame * m_inputBuffer[2];
-	f_cnt_t m_inputBufferFrames[2];
-	f_cnt_t m_inputBufferSize[2];
-	int m_inputBufferRead;
-	int m_inputBufferWrite;
-
+	
+	ringbuffer_t<sampleFrame> m_inputBuffer;
+	
 	surroundSampleFrame * m_readBuf;
 	surroundSampleFrame * m_writeBuf;
 

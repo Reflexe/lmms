@@ -896,7 +896,9 @@ ComboBoxModel *SongEditor::snappingModel() const
 	return m_snappingModel;
 }
 
-
+float SongEditor::maximumPixelsPerBar() const{
+	return m_zoomLevels.back() * DEFAULT_PIXELS_PER_BAR;
+}
 
 
 SongEditorWindow::SongEditorWindow(Song* song) :

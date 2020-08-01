@@ -227,9 +227,9 @@ LfoControllerDialog::~LfoControllerDialog()
 
 void LfoControllerDialog::askUserDefWave()
 {
-	SampleBuffer * sampleBuffer = m_lfo->m_userDefSampleBuffer;
-
-	QString fileName = sampleBuffer->openAndSetWaveformFile();
+	QString fileName = SampleBuffer::openAndSetWaveformFile();
+	m_lfo->m_userDefSampleBuffer.reset(new SampleBuffer(fileName));
+	
 	if( fileName.isEmpty() == false )
 	{
 		// TODO:

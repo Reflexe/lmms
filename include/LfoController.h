@@ -76,8 +76,7 @@ protected:
 	sample_t (*m_sampleFunction)( const float );
 
 private:
-	SampleBuffer * m_userDefSampleBuffer;
-	SampleBuffer::InfoUpdatingValue m_userDefSampleBufferInfo;
+	std::unique_ptr<SampleBuffer> m_userDefSampleBuffer;
 
 protected slots:
 	void updatePhase();

@@ -57,8 +57,8 @@
 SampleTCO::SampleTCO( Track * _track ) :
 	TrackContentObject( _track ),
 	m_sampleBuffer( new SampleBuffer ),
-	m_sampleBufferInfo(m_sampleBuffer->createUpdatingValue(this)),
-	m_isPlaying( false )
+	m_isPlaying( false ),
+	m_playInfo{m_sampleBuffer->frames()}
 {
 	saveJournallingState( false );
 	restoreJournallingState();
@@ -90,7 +90,7 @@ SampleTCO::SampleTCO( Track * _track ) :
 	connect(this, SIGNAL(positionChanged()), getTrack(), SLOT(updateTcos()));
 
 	// Care about finishing setAudioFile.
-	connect(&m_loadingWatcher, &Watcher::finished, this, &SampleTCO::onFileLoadingFinished);
+	connect(&m_loadingWatcher, &QFutureWatcher<void>::finished, this, &SampleTCO::onFileLoadingFinished);
 }
 
 
@@ -98,6 +98,8 @@ SampleTCO::SampleTCO( Track * _track ) :
 
 SampleTCO::~SampleTCO()
 {
+	m_loadingWatcher.waitForFinished();
+	
 	SampleTrack * sampletrack = dynamic_cast<SampleTrack*>( getTrack() );
 	if ( sampletrack )
 	{
@@ -114,8 +116,8 @@ void SampleTCO::changeLength( const MidiTime & _length )
 }
 
 
-const QString &SampleTCO::sampleFile() const {
-	return m_sampleBufferInfo->audioFile;
+QString SampleTCO::sampleFile() const {
+	return m_sampleBuffer->audioFileName();
 }
 
 
@@ -123,13 +125,10 @@ void SampleTCO::setSampleFile(const QString &_sf) {
 	// We're in the process of loading another file.
 	if (m_loadingWatcher.isRunning())
 		return;
-
-	auto sampleBuffer = m_sampleBuffer;
-
+	
 	// Load the file.
-	m_loadingWatcher.setFuture(runAsync([sampleBuffer, _sf] {
-		sampleBuffer->setAudioFile(_sf);
-		return sampleBuffer->createInfo();
+	m_loadingWatcher.setFuture(runAsync([this, _sf] {
+		m_sampleBuffer = std::make_shared<SampleBuffer>(_sf);
 	}));
 
 	// onFileLoadingFinished will run when the future has been finished.
@@ -138,8 +137,13 @@ void SampleTCO::setSampleFile(const QString &_sf) {
 }
 
 void SampleTCO::onFileLoadingFinished() {
+	connect(m_sampleBuffer.get(),
+			&SampleBuffer::sampleUpdated, this, &SampleTCO::onSampleBufferChanged);
+	
 	setStartTimeOffset(0);
-	changeLength((int) (m_loadingWatcher.future().result().frames / Engine::framesPerTick()));
+	changeLength((int) (m_sampleBuffer->frames() / Engine::framesPerTick()));
+
+	onSampleBufferChanged();
 }
 
 
@@ -159,6 +163,8 @@ bool SampleTCO::isPlaying() const {
 void SampleTCO::setIsPlaying(bool isPlaying) {
 	auto guard = Engine::mixer()->requestChangesGuard();
 	m_isPlaying = isPlaying;
+	
+	emit onRecordingStatusChanged(isPlaying && m_recordModel.value());
 }
 
 bool SampleTCO::isEmpty() const
@@ -168,12 +174,12 @@ bool SampleTCO::isEmpty() const
 
 
 void SampleTCO::updateLength() {
-	emit sampleChanged(SampleBuffer::UpdateType::Clear);
+	emit sampleChanged();
 }
 
 
 MidiTime SampleTCO::sampleLength() const {
-	return (int) (m_sampleBufferInfo->frames / Engine::framesPerTick(m_sampleBufferInfo->sampleRate));
+	return (int) (m_sampleBuffer->frames() / Engine::framesPerTick(m_sampleBuffer->sampleRate()));
 }
 
 
@@ -248,20 +254,36 @@ TrackContentObjectView * SampleTCO::createView( TrackView * _tv )
 	return new SampleTCOView( this, _tv );
 }
 
-void SampleTCO::onSampleBufferChanged(int updateType) {
-	emit sampleChanged(updateType);
+const SampleBufferPlayInfo &SampleTCO::getPlayInfo() const {
+	return m_playInfo;
 }
 
+void SampleTCO::onSampleBufferChanged() {
+	// TODO: make sure we are not playing
+	m_playInfo.setEndFrame(m_sampleBuffer->frames());
+	m_playInfo.setStartFrame(0);
+	m_playInfo.setLoopEndFrame(m_sampleBuffer->frames());
+	m_playInfo.setLoopStartFrame(0);
+	
+	emit sampleChanged();
+	
+}
+
+void SampleTCO::setSampleBuffer(const shared_ptr<SampleBuffer> &sampleBuffer) {
+	m_sampleBuffer = sampleBuffer;
+	emit onSampleBufferChanged();
+}
 
 SampleTCOView::SampleTCOView( SampleTCO * _tco, TrackView * _tv ) :
 	TrackContentObjectView( _tco, _tv ),
 	m_tco( _tco )
 {
 	// update UI and tooltip
-	updateSample(SampleBuffer::UpdateType::Clear);
+	updateSample();
 
 	// Update the view on each visualization.
 	QObject::connect(&m_visualizationWatcher, &Watcher::finished, this, &SampleTCOView::update);
+	QObject::connect(m_tco, &SampleTCO::onRecordingStatusChanged, this, &SampleTCOView::onRecordingStatusChanged);
 
 	// track future changes of SampleTCO
 	connect(m_tco, &SampleTCO::sampleChanged,
@@ -270,14 +292,13 @@ SampleTCOView::SampleTCOView( SampleTCO * _tco, TrackView * _tv ) :
 	setStyle( QApplication::style() );
 }
 
-void SampleTCOView::updateSample(int updateType) {
-	updateVisualizer(mutedColor(),
-					 static_cast<SampleBufferVisualizer::Operation>(updateType));
+void SampleTCOView::updateSample() {
+	updateVisualizer(mutedColor());
 
 	// set tooltip to filename so that user can see what sample this
 	// sample-tco contains
-	ToolTip::add( this, ( m_tco->m_sampleBufferInfo->audioFile != "" ) ?
-					m_tco->m_sampleBufferInfo->audioFile :
+	ToolTip::add( this, ( m_tco->m_sampleBuffer->audioFileName() != "" ) ?
+					m_tco->m_sampleBuffer->audioFileName() :
 					tr( "Double-click to open sample" ) );
 	setNeedsUpdate (true);
 }
@@ -392,7 +413,7 @@ void SampleTCOView::mouseReleaseEvent(QMouseEvent *_me)
 void SampleTCOView::mouseDoubleClickEvent( QMouseEvent * )
 {
 	QString af = m_tco->m_sampleBuffer->openAudioFile();
-	if(af != "" && af != m_tco->m_sampleBufferInfo->audioFile) {
+	if(af != "" && af != m_tco->m_sampleBuffer->audioFileName()) {
 		m_tco->setSampleFile( af );
 		Engine::getSong()->setModified();
 	}
@@ -447,7 +468,7 @@ void SampleTCOView::paintEvent( QPaintEvent * pe )
 		m_sampleBufferVisualizerMutex->unlock();
 	}
 
-	QFileInfo fileInfo(m_tco->m_sampleBufferInfo->audioFile);
+	QFileInfo fileInfo(m_tco->m_sampleBuffer->audioFileName());
 	QString filename = fileInfo.fileName();
 	paintTextLabel(filename, p);
 
@@ -475,12 +496,13 @@ void SampleTCOView::paintEvent( QPaintEvent * pe )
 	p.end();
 }
 
-void SampleTCOView::updateVisualizer(QPen p, SampleBufferVisualizer::Operation operation) {
+void SampleTCOView::updateVisualizer(QPen p) {
+	// FIXME: duplicate code :<
 	auto timeSig = TimeSig(Engine::getSong()->getTimeSigModel());
 	auto realTicksPerDefaultTicks = float(float(MidiTime::ticksPerBar(timeSig) / MidiTime::ticksPerBar()));
 	auto normalizedPixelsPerTact = pixelsPerBar() * realTicksPerDefaultTicks;
 	auto normalizedFramesPerTick =
-			Engine::framesPerTick(m_tco->m_sampleBufferInfo->sampleRate) * realTicksPerDefaultTicks;
+			Engine::framesPerTick(m_tco->m_sampleBuffer->sampleRate()) * realTicksPerDefaultTicks;
 
 	const int spacing = TCO_BORDER_WIDTH + 1;
 
@@ -504,6 +526,7 @@ void SampleTCOView::updateVisualizer(QPen p, SampleBufferVisualizer::Operation o
 	// 		 dangling.
 	m_visualizationWatcher.setFuture(runAsync([=] {
 		QMutexLocker locker{visualizerMutex.get()};
+		visualizer->clear();
 		visualizer->update(
 				*sampleBuffer,
 				startTimeOffset,
@@ -511,10 +534,16 @@ void SampleTCOView::updateVisualizer(QPen p, SampleBufferVisualizer::Operation o
 				rectMinusMargins,
 				normalizedPixelsPerTact,
 				f_cnt_t(normalizedFramesPerTick),
-				p,
-				operation
-		);
+				p);
 	}));
+}
+
+void SampleTCOView::onRecordingStatusChanged(bool isRecording) {
+	if (isRecording) {
+		m_maybeRecordingVisualizer.reset(new internal::RecordingVisualizer(this));
+	} else {
+		m_maybeRecordingVisualizer.reset();
+	}
 }
 
 
@@ -610,14 +639,13 @@ bool SampleTrack::play( const MidiTime & _start, const fpp_t _frames,
 				if( sTco->isPlaying() == false && (_start >= (sTco->startPosition() + sTco->startTimeOffset())
 												   || sTco->isRecord ()) )
 				{
-					auto sampleBufferInfo = sTco->sampleBuffer()->createInfo();
-
-					auto bufferFramesPerTick = Engine::framesPerTick(sampleBufferInfo.sampleRate);
+					const auto &sampleBuffer = sTco->sampleBuffer();
+					auto bufferFramesPerTick = Engine::framesPerTick(sampleBuffer->sampleRate());
 					f_cnt_t sampleStart =
 							bufferFramesPerTick * (_start - sTco->startPosition() - sTco->startTimeOffset());
 					f_cnt_t tcoFrameLength = bufferFramesPerTick *
 											 (sTco->endPosition() - sTco->startPosition() - sTco->startTimeOffset());
-					f_cnt_t sampleBufferLength = sampleBufferInfo.frames;
+					f_cnt_t sampleBufferLength = sampleBuffer->frames();
 					//if the Tco smaller than the sample length we play only until Tco end
 					//else we play the sample to the end but nothing more
 					f_cnt_t samplePlayLength =
@@ -625,9 +653,8 @@ bool SampleTrack::play( const MidiTime & _start, const fpp_t _frames,
 					//we only play within the sampleBuffer limits
 					// anyway, "play" (record) this TCO if is recording.
 					if (sampleStart < sampleBufferLength || sTco->isRecord()) {
-						auto sampleBuffer = sTco->sampleBuffer();
-						sampleBuffer->setStartFrame<LaunchType::Sync>(sampleStart);;
-						sampleBuffer->setEndFrame<LaunchType::Sync>(samplePlayLength);
+						sTco->m_playInfo.setStartFrame(sampleStart);
+						sTco->m_playInfo.setEndFrame(samplePlayLength);
 						tcos.push_back(sTco);
 						sTco->setIsPlaying(true);
 					}
@@ -776,7 +803,7 @@ void SampleTrack::beforeRecordOn(MidiTime time)
 			fallbackRecordTCO->movePosition (time);
 //			fallbackRecordTCO->setSamplePlayLength (Engine::framesPerTick());
 			fallbackRecordTCO->changeLength (1);
-			fallbackRecordTCO->sampleBuffer()->setEndFrame (Engine::framesPerTick());
+			fallbackRecordTCO->m_playInfo.setEndFrame(Engine::framesPerTick());
 			fallbackRecordTCO->setIsPlaying (false);
 
 			fallbackRecordTCO->setAutoResize (true);
@@ -1259,7 +1286,7 @@ void SampleTrackWindow::loadSettings(const QDomElement& element)
 
 
 void SampleTrackView::onRecordActionSelected(QAction *action) {
-	SampleTrack * st = castModel<SampleTrack>();
+	auto * st = castModel<SampleTrack>();
 	auto selectedRecordingChannel = static_cast<SampleTrack::RecordingChannel>(action->data ().value<int>());
 
 	// If we've selected the current recording channel again, we should undo it.
@@ -1270,6 +1297,58 @@ void SampleTrackView::onRecordActionSelected(QAction *action) {
 		st->setRecordingChannel (selectedRecordingChannel);
 		action->setChecked (true);
 	}
+}
 
+internal::RecordingVisualizer::RecordingVisualizer(SampleTCOView *tcoView)
+	: 
+	m_tcoView{tcoView},
+	m_visualizationTimer(new QTimer(this)),
+	m_dataReader{Engine::mixer()->createInputReader()}
+{
+	QObject::connect(m_visualizationTimer, &QTimer::timeout, this, &RecordingVisualizer::onTimerInterval);
+	// TODO: interval time
+	m_visualizationTimer->start(100);
+}
 
+internal::RecordingVisualizer::~RecordingVisualizer() {
+	m_visualizationWatcher.waitForFinished();
+}
+
+void internal::RecordingVisualizer::onTimerInterval() {
+	auto p = m_tcoView->mutedColor();
+	
+	auto timeSig = TimeSig(Engine::getSong()->getTimeSigModel());
+	auto realTicksPerDefaultTicks = float(float(MidiTime::ticksPerBar(timeSig)) / MidiTime::ticksPerBar());
+	auto normalizedPixelsPerTact = m_tcoView->pixelsPerBar() * realTicksPerDefaultTicks;
+	auto normalizedFramesPerTick =
+			Engine::framesPerTick(Engine::mixer()->inputSampleRate()) * realTicksPerDefaultTicks;
+
+	const int spacing = TCO_BORDER_WIDTH + 1;
+
+	QMargins margins(spacing,
+					 TCO_BORDER_WIDTH - 1,
+					 spacing,
+					 TCO_BORDER_WIDTH);
+
+	// Prepare values for the lambda.
+	auto rectMinusMargins = m_tcoView->rect() - margins;
+	auto startTimeOffset = m_tcoView->m_tco->startTimeOffset();
+	auto sampleLength = m_tcoView->m_tco->sampleLength();
+
+	// Prepare shared_ptr-s to be captured by the lambda.
+	auto sampleBuffer = m_tcoView->m_tco->sampleBuffer();
+	auto visualizer = m_tcoView->m_sampleBufferVisualizer;
+	auto visualizerMutex = m_tcoView->m_sampleBufferVisualizerMutex;
+	
+	m_visualizationWatcher.setFuture(runAsync([=] {
+		QMutexLocker locker{visualizerMutex.get()};
+		visualizer->update(
+				m_dataReader,
+				startTimeOffset,
+				sampleLength,
+				rectMinusMargins,
+				normalizedPixelsPerTact,
+				f_cnt_t(normalizedFramesPerTick),
+				p);
+	}));
 }

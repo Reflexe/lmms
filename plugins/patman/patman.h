@@ -94,7 +94,7 @@ private:
 	};
 
 	QString m_patchFile;
-	std::vector<std::pair<std::shared_ptr<SampleBuffer>, SampleBuffer::InfoUpdatingValue>> m_patchSamples;
+	std::vector<std::pair<std::shared_ptr<SampleBuffer>, SampleBufferPlayInfo>> m_patchSamples;
 	BoolModel m_loopedModel;
 	BoolModel m_tunedModel;
 

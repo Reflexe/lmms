@@ -74,7 +74,7 @@ Plugin::Descriptor PLUGIN_EXPORT audiofileprocessor_plugin_descriptor =
 audioFileProcessor::audioFileProcessor( InstrumentTrack * _instrument_track ) :
 	Instrument( _instrument_track, &audiofileprocessor_plugin_descriptor ),
 	m_sampleBuffer(),
-	m_sampleBufferInfo{m_sampleBuffer.createUpdatingValue(this)},
+	m_playInfo(0),
 	m_ampModel( 100, 0, 500, 1, this, tr( "Amplify" ) ),
 	m_startPointModel( 0, 0, 1, 0.0000001f, this, tr( "Start of sample" ) ),
 	m_endPointModel( 1, 0, 1, 0.0000001f, this, tr( "End of sample" ) ),
@@ -129,18 +129,18 @@ void audioFileProcessor::playNote( NotePlayHandle * _n,
 	// played.
 	if( m_stutterModel.value() == true && _n->frequency() < 20.0 )
 	{
-		m_nextPlayStartPoint = m_sampleBufferInfo->startFrame;
+		m_nextPlayStartPoint = m_playInfo.startFrame();
 		m_nextPlayBackwards = false;
 		return;
 	}
 
 	if( !_n->m_pluginData )
 	{
-		if( m_stutterModel.value() == true && m_nextPlayStartPoint >= m_sampleBufferInfo->endFrame )
+		if( m_stutterModel.value() == true && m_nextPlayStartPoint >= m_playInfo.endFrame() )
 		{
 			// Restart playing the note if in stutter mode, not in loop mode,
 			// and we're at the end of the sample.
-			m_nextPlayStartPoint = m_sampleBufferInfo->startFrame;
+			m_nextPlayStartPoint = m_playInfo.startFrame();
 			m_nextPlayBackwards = false;
 		}
 		// set interpolation mode for libsamplerate
@@ -162,15 +162,16 @@ void audioFileProcessor::playNote( NotePlayHandle * _n,
 		((handleState *)_n->m_pluginData)->setBackwards( m_nextPlayBackwards );
 
 // debug code
-/*		qDebug( "frames %d", m_sampleBuffer.frames() );
-		qDebug( "startframe %d", m_sampleBuffer.startFrame() );
+/*		qDebug( "frames %d", m_sampleBuffer->frames() );
+		qDebug( "startframe %d", m_sampleBuffer->startFrame() );
 		qDebug( "nextPlayStartPoint %d", m_nextPlayStartPoint );*/
 	}
 
 	if( ! _n->isFinished() )
 	{
-		if( m_sampleBuffer.play( _working_buffer + offset,
+		if( m_sampleBuffer->play( _working_buffer + offset,
 						(handleState *)_n->m_pluginData,
+						m_playInfo,
 						frames, _n->frequency(),
 						static_cast<SampleBuffer::LoopMode>( m_loopModel.value() ) ) )
 		{
@@ -211,7 +212,7 @@ void audioFileProcessor::deleteNotePluginData( NotePlayHandle * _n )
 void audioFileProcessor::saveSettings( QDomDocument & _doc,
 							QDomElement & _this )
 {
-	m_sampleBuffer.saveSettings (_doc, _this);
+	m_sampleBuffer->saveState (_doc, _this);
 	m_reverseModel.saveSettings( _doc, _this, "reversed" );
 	m_loopModel.saveSettings( _doc, _this, "looped" );
 	m_ampModel.saveSettings( _doc, _this, "amp" );
@@ -228,27 +229,25 @@ void audioFileProcessor::saveSettings( QDomDocument & _doc,
 
 void audioFileProcessor::loadSettings( const QDomElement & _this )
 {
-	m_isLoadingSettings = true;
-
 	if( _this.attribute( "src" ) != "" )
 	{
 		setAudioFile( _this.attribute( "src" ), false );
 
-		QString absolutePath = m_sampleBuffer.tryToMakeAbsolute( m_sampleBufferInfo->audioFile );
+		QString absolutePath = m_sampleBuffer->tryToMakeAbsolute( m_sampleBuffer->audioFileName() );
 		if ( !QFileInfo( absolutePath ).exists() )
 		{
-			QString message = tr( "Sample not found: %1" ).arg( m_sampleBufferInfo->audioFile );
+			QString message = tr( "Sample not found: %1" ).arg( m_sampleBuffer->audioFileName() );
 
 			Engine::getSong()->collectError( message );
 		}
 	}
 	else if( _this.attribute( "sampledata" ) != "" )
 	{
-		m_sampleBuffer = SampleBuffer( _this.attribute( "sampledata" ) ,
-									   Engine::mixer ()->baseSampleRate ());
+		m_sampleBuffer.reset(new SampleBuffer( _this.attribute( "sampledata" ) ,
+								   Engine::mixer ()->baseSampleRate ()));
 		qWarning("Using default sampleRate. That could lead to invalid values");
 	} else {
-		m_sampleBuffer.loadSettings (_this);
+		m_sampleBuffer->restoreState (_this.firstChildElement (m_sampleBuffer->nodeName ()));
 	}
 
 	m_loopModel.loadSettings( _this, "looped" );
@@ -268,7 +267,7 @@ void audioFileProcessor::loadSettings( const QDomElement & _this )
 	}
 
 	m_reverseModel.loadSettings( _this, "reversed" );
-	// The current state of m_sampleBuffer.
+	// The current state of m_sampleBuffer->
 	m_isCurrentlyReversed = m_reverseModel.value ();
 
 	m_stutterModel.loadSettings( _this, "stutter" );
@@ -282,8 +281,6 @@ void audioFileProcessor::loadSettings( const QDomElement & _this )
 	}
 
 	pointChanged();
-
-	m_isLoadingSettings = false;
 }
 
 
@@ -310,7 +307,7 @@ int audioFileProcessor::getBeatLen( NotePlayHandle * _n ) const
 	const float freq_factor = BaseFreq / _n->frequency() *
 			Engine::mixer()->processingSampleRate() / Engine::mixer()->baseSampleRate();
 
-	return static_cast<int>( floorf( ( m_sampleBufferInfo->endFrame - m_sampleBufferInfo->startFrame ) * freq_factor ) );
+	return static_cast<int>( floorf( ( m_playInfo.endFrame() - m_playInfo.startFrame() ) * freq_factor ) );
 }
 
 
@@ -331,15 +328,15 @@ void audioFileProcessor::setAudioFile( const QString & _audio_file,
 	// is current channel-name equal to previous-filename??
 	if( _rename &&
 		( instrumentTrack()->name() ==
-			QFileInfo( m_sampleBufferInfo->audioFile ).fileName() ||
-				m_sampleBufferInfo->audioFile.isEmpty() ) )
+			QFileInfo( m_sampleBuffer->audioFileName() ).fileName() ||
+				m_sampleBuffer->audioFileName().isEmpty() ) )
 	{
 		// then set it to new one
 		instrumentTrack()->setName( QFileInfo( _audio_file).fileName() );
 	}
 	// else we don't touch the track-name, because the user named it self
 
-	m_sampleBuffer.setAudioFile( _audio_file );
+	m_sampleBuffer.reset(new SampleBuffer(_audio_file));
 	loopPointChanged();
 }
 
@@ -348,14 +345,13 @@ void audioFileProcessor::setAudioFile( const QString & _audio_file,
 
 void audioFileProcessor::reverseModelChanged( void )
 {
-	// Don't consider loading as a value change.
-	if (!m_isLoadingSettings && m_reverseModel.value () != m_isCurrentlyReversed) {
+	if (m_reverseModel.value () != m_isCurrentlyReversed) {
 		m_isCurrentlyReversed = m_reverseModel.value ();
 
-		m_sampleBuffer.reverse ();
+		m_sampleBuffer->reverse ();
 	}
 
-	m_nextPlayStartPoint = m_sampleBufferInfo->startFrame;
+	m_nextPlayStartPoint = m_playInfo.startFrame();
 	m_nextPlayBackwards = false;
 }
 
@@ -364,13 +360,13 @@ void audioFileProcessor::reverseModelChanged( void )
 
 void audioFileProcessor::ampModelChanged( void )
 {
-	m_sampleBuffer.setAmplification( m_ampModel.value() / 100.0f );
+	m_playInfo.setAmplification( m_ampModel.value() / 100.0f );
 }
 
 
 void audioFileProcessor::stutterModelChanged()
 {
-	m_nextPlayStartPoint = m_sampleBufferInfo->startFrame;
+	m_nextPlayStartPoint = m_playInfo.startFrame();
 	m_nextPlayBackwards = false;
 }
 
@@ -439,14 +435,14 @@ void audioFileProcessor::loopPointChanged( void )
 
 void audioFileProcessor::pointChanged( void )
 {
-	const f_cnt_t f_start = static_cast<f_cnt_t>( m_startPointModel.value() *	( m_sampleBufferInfo->frames-1 ) );
-	const f_cnt_t f_end = static_cast<f_cnt_t>( m_endPointModel.value() * ( m_sampleBufferInfo->frames-1 ) );
-	const f_cnt_t f_loop = static_cast<f_cnt_t>( m_loopPointModel.value() * ( m_sampleBufferInfo->frames-1 ) );
+	const f_cnt_t f_start = static_cast<f_cnt_t>( m_startPointModel.value() *	( m_sampleBuffer->frames()-1 ) );
+	const f_cnt_t f_end = static_cast<f_cnt_t>( m_endPointModel.value() * ( m_sampleBuffer->frames()-1 ) );
+	const f_cnt_t f_loop = static_cast<f_cnt_t>( m_loopPointModel.value() * ( m_sampleBuffer->frames()-1 ) );
 
 	m_nextPlayStartPoint = f_start;
 	m_nextPlayBackwards = false;
 
-	m_sampleBuffer.setAllPointFrames( f_start, f_end, f_loop, f_end );
+	m_playInfo.setAllPointFrames( f_start, f_end, f_loop, f_end );
 	emit dataChanged();
 }
 
@@ -614,8 +610,7 @@ void AudioFileProcessorView::newWaveView()
 		m_waveView = 0;
 	}
 	m_waveView = new AudioFileProcessorWaveView( this, 245, 75, castModel<audioFileProcessor>()->m_sampleBuffer,
-												 castModel<audioFileProcessor>()->m_sampleBufferInfo,
-												 castModel<audioFileProcessor>());
+												 castModel<audioFileProcessor>(), castModel<audioFileProcessor>()->m_playInfo);
 	m_waveView->move( 2, 172 );
 	m_waveView->setKnobs(
 		dynamic_cast<AudioFileProcessorWaveView::knob *>( m_startKnob ),
@@ -661,7 +656,8 @@ void AudioFileProcessorView::paintEvent( QPaintEvent * )
 	audioFileProcessor * a = castModel<audioFileProcessor>();
 
  	QString file_name = "";
-	int idx = a->m_sampleBufferInfo->audioFile.length();
+ 	auto sampleFileName = a->m_sampleBuffer->audioFileName();
+	int idx = sampleFileName.length();
 
 	p.setFont( pointSize<8>( font() ) );
 
@@ -672,7 +668,7 @@ void AudioFileProcessorView::paintEvent( QPaintEvent * )
 	while( idx > 0 &&
 		fm.size( Qt::TextSingleLine, file_name + "..." ).width() < 210 )
 	{
-		file_name = a->m_sampleBufferInfo->audioFile[--idx] + file_name;
+		file_name = sampleFileName[--idx] + file_name;
 	}
 
 	if( idx > 0 )
@@ -700,7 +696,7 @@ void AudioFileProcessorView::sampleUpdated( void )
 
 void AudioFileProcessorView::openAudioFile( void )
 {
-	QString af = castModel<audioFileProcessor>()->m_sampleBuffer.
+	QString af = castModel<audioFileProcessor>()->m_sampleBuffer->
 							openAudioFile();
 	if( af != "" )
 	{
@@ -716,7 +712,7 @@ void AudioFileProcessorView::openAudioFile( void )
 void AudioFileProcessorView::modelChanged( void )
 {
 	audioFileProcessor * a = castModel<audioFileProcessor>();
-	connect( &a->m_sampleBuffer, SIGNAL( sampleUpdated() ),
+	connect( a->m_sampleBuffer.get(), SIGNAL( sampleUpdated() ),
 					this, SLOT( sampleUpdated() ) );
 	m_ampKnob->setModel( &a->m_ampModel );
 	m_startKnob->setModel( &a->m_startPointModel );
@@ -734,24 +730,23 @@ void AudioFileProcessorView::modelChanged( void )
 
 void AudioFileProcessorWaveView::updateSampleRange()
 {
-	if( m_sampleBufferInfo->frames > 1 )
+	if( m_sampleBuffer->frames() > 1 )
 	{
-		const f_cnt_t marging = ( m_sampleBufferInfo->endFrame - m_sampleBufferInfo->startFrame ) * 0.1;
-		m_from = qMax( 0, m_sampleBufferInfo->startFrame - marging );
-		m_to = qMin( m_sampleBufferInfo->endFrame + marging, m_sampleBufferInfo->frames );
+		const f_cnt_t marging = ( m_playInfo.endFrame() - m_playInfo.startFrame() ) * 0.1;
+		m_from = qMax( 0, m_playInfo.startFrame() - marging );
+		m_to = qMin( m_playInfo.endFrame() + marging, m_sampleBuffer->frames() );
 	}
 }
 
-AudioFileProcessorWaveView::AudioFileProcessorWaveView(QWidget * _parent, int _w, int _h, SampleBuffer& buf ,
-		SampleBuffer::InfoUpdatingValue &sampleBufferInfo,
-		audioFileProcessor *fileProcessor) :
+AudioFileProcessorWaveView::AudioFileProcessorWaveView(QWidget * _parent, int _w, int _h, unique_ptr<SampleBuffer> &buf ,
+													   audioFileProcessor *fileProcessor, SampleBufferPlayInfo &playInfo) :
 	QWidget( _parent ),
 	m_audioFileProcessor{fileProcessor},
 	m_sampleBuffer( buf ),
-	m_sampleBufferInfo(sampleBufferInfo),
+	m_playInfo(playInfo),
 	m_graph( QPixmap( _w - 2 * s_padding, _h - 2 * s_padding ) ),
 	m_from( 0 ),
-	m_to( m_sampleBufferInfo->frames ),
+	m_to( m_sampleBuffer->frames() ),
 	m_last_from( 0 ),
 	m_last_to( 0 ),
 	m_last_amp( 0 ),
@@ -899,11 +894,11 @@ void AudioFileProcessorWaveView::paintEvent( QPaintEvent * _pe )
 
 	const QRect graph_rect( s_padding, s_padding, width() - 2 * s_padding, height() - 2 * s_padding );
 	const f_cnt_t frames = m_to - m_from;
-	m_startFrameX = graph_rect.x() + ( m_sampleBufferInfo->startFrame - m_from ) *
+	m_startFrameX = graph_rect.x() + ( m_playInfo.startFrame() - m_from ) *
 						double( graph_rect.width() ) / frames;
-	m_endFrameX = graph_rect.x() + ( m_sampleBufferInfo->endFrame - m_from ) *
+	m_endFrameX = graph_rect.x() + ( m_playInfo.endFrame() - m_from ) *
 						double( graph_rect.width() ) / frames;
-	m_loopFrameX = graph_rect.x() + ( m_sampleBufferInfo->loopStartFrame - m_from ) *
+	m_loopFrameX = graph_rect.x() + ( m_playInfo.loopStartFrame() - m_from ) *
 						double( graph_rect.width() ) / frames;
 	const int played_width_px = ( m_framesPlayed - m_from ) *
 						double( graph_rect.width() ) / frames;
@@ -978,7 +973,7 @@ void AudioFileProcessorWaveView::paintEvent( QPaintEvent * _pe )
 	p.setFont( pointSize<8>( font() ) );
 
 	QString length_text;
-	const int length = m_sampleBufferInfo->sampleLength();
+	const int length = m_playInfo.sampleLength(m_sampleBuffer->sampleRate());
 
 	if( length > 20000 )
 	{
@@ -1007,37 +1002,37 @@ void AudioFileProcessorWaveView::updateGraph()
 {
 	if( m_to == 1 )
 	{
-		m_to = m_sampleBufferInfo->frames * 0.7;
+		m_to = m_sampleBuffer->frames() * 0.7;
 		slideSamplePointToFrames( end, m_to * 0.7 );
 	}
 
-	if( m_from > m_sampleBufferInfo->startFrame )
+	if( m_from > m_playInfo.startFrame() )
 	{
-		m_from = m_sampleBufferInfo->startFrame;
+		m_from = m_playInfo.startFrame();
 	}
 
-	if( m_to < m_sampleBufferInfo->endFrame )
+	if( m_to < m_playInfo.endFrame() )
 	{
-		m_to = m_sampleBufferInfo->endFrame;
+		m_to = m_playInfo.endFrame();
 	}
 
 	if(m_audioFileProcessor->isReversed () != m_reversed) {
 		reverse();
 	}
-	else if( m_last_from == m_from && m_last_to == m_to && m_sampleBufferInfo->amplification == m_last_amp )
+	else if( m_last_from == m_from && m_last_to == m_to && m_playInfo.amplification() == m_last_amp )
 	{
 		return;
 	}
 
 	m_last_from = m_from;
 	m_last_to = m_to;
-	m_last_amp = m_sampleBufferInfo->amplification;
+	m_last_amp = m_playInfo.amplification();
 
 	m_graph.fill( Qt::transparent );
 	QPainter p( &m_graph );
 	p.setPen( QColor( 255, 255, 255 ) );
 
-	m_sampleBuffer.visualize(
+	m_sampleBuffer->visualize(
 		p,
 		QRect( 0, 0, m_graph.width(), m_graph.height() ),
 		m_from, m_to
@@ -1049,9 +1044,9 @@ void AudioFileProcessorWaveView::updateGraph()
 
 void AudioFileProcessorWaveView::zoom( const bool _out )
 {
-	const f_cnt_t start = m_sampleBufferInfo->startFrame;
-	const f_cnt_t end = m_sampleBufferInfo->endFrame;
-	const f_cnt_t frames = m_sampleBufferInfo->frames;
+	const f_cnt_t start = m_playInfo.startFrame();
+	const f_cnt_t end = m_playInfo.endFrame();
+	const f_cnt_t frames = m_sampleBuffer->frames();
 	const f_cnt_t d_from = start - m_from;
 	const f_cnt_t d_to = m_to - end;
 
@@ -1084,7 +1079,7 @@ void AudioFileProcessorWaveView::zoom( const bool _out )
 		);
 	}
 
-	if( double( new_to - new_from ) / m_sampleBufferInfo->sampleRate > 0.05  )
+	if( double( new_to - new_from ) / m_sampleBuffer->sampleRate() > 0.05  )
 	{
 		m_from = new_from;
 		m_to = new_to;
@@ -1103,8 +1098,8 @@ void AudioFileProcessorWaveView::slide( int _px )
 		step = -step;
 	}
 
-	f_cnt_t step_from = qBound( 0, m_from + step, m_sampleBufferInfo->frames ) - m_from;
-	f_cnt_t step_to = qBound( m_from + 1, m_to + step, m_sampleBufferInfo->frames ) - m_to;
+	f_cnt_t step_from = qBound( 0, m_from + step, m_sampleBuffer->frames() ) - m_from;
+	f_cnt_t step_to = qBound( m_from + 1, m_to + step, m_sampleBuffer->frames() ) - m_to;
 
 	step = qAbs( step_from ) < qAbs( step_to ) ? step_from : step_to;
 
@@ -1165,7 +1160,7 @@ void AudioFileProcessorWaveView::slideSamplePointByFrames( knobType _point, f_cn
 	}
 	else
 	{
-		const double v = static_cast<double>( _frames ) / m_sampleBufferInfo->frames;
+		const double v = static_cast<double>( _frames ) / m_sampleBuffer->frames();
 		if( _slide_to )
 		{
 			a_knob->slideTo( v );
@@ -1182,11 +1177,11 @@ void AudioFileProcessorWaveView::slideSamplePointByFrames( knobType _point, f_cn
 
 void AudioFileProcessorWaveView::slideSampleByFrames( f_cnt_t _frames )
 {
-	if( m_sampleBufferInfo->frames <= 1 )
+	if( m_sampleBuffer->frames() <= 1 )
 	{
 		return;
 	}
-	const double v = static_cast<double>( _frames ) / m_sampleBufferInfo->frames;
+	const double v = static_cast<double>( _frames ) / m_sampleBuffer->frames();
 	if( m_startKnob ) {
 		m_startKnob->slideBy( v, false );
 	}
@@ -1204,14 +1199,14 @@ void AudioFileProcessorWaveView::slideSampleByFrames( f_cnt_t _frames )
 void AudioFileProcessorWaveView::reverse()
 {
 	slideSampleByFrames(
-		m_sampleBufferInfo->frames
-			- m_sampleBufferInfo->endFrame
-			- m_sampleBufferInfo->startFrame
+		m_sampleBuffer->frames()
+			- m_playInfo.endFrame()
+			- m_playInfo.startFrame()
 	);
 
 	const f_cnt_t from = m_from;
-	m_from = m_sampleBufferInfo->frames - m_to;
-	m_to = m_sampleBufferInfo->frames - from;
+	m_from = m_sampleBuffer->frames() - m_to;
+	m_to = m_sampleBuffer->frames() - from;
 
 	m_reversed = ! m_reversed;
 }
@@ -1254,7 +1249,7 @@ float AudioFileProcessorWaveView::knob::getValue( const QPoint & _p )
 {
 	const double dec_fact = ! m_waveView ? 1 :
 		double( m_waveView->m_to - m_waveView->m_from )
-			/ m_waveView->m_sampleBufferInfo->frames;
+			/ m_waveView->m_sampleBuffer->frames();
 	const float inc = ::Knob::getValue( _p ) * dec_fact;
 
 	return inc;
@@ -1275,12 +1270,12 @@ bool AudioFileProcessorWaveView::knob::checkBound( double _v ) const
 		return false;
 
 	const double d1 = qAbs( m_relatedKnob->model()->value() - model()->value() )
-		* ( m_waveView->m_sampleBufferInfo->frames )
-		/ m_waveView->m_sampleBufferInfo->sampleRate;
+		* ( m_waveView->m_sampleBuffer->frames() )
+		/ m_waveView->m_sampleBuffer->sampleRate();
 
 	const double d2 = qAbs( m_relatedKnob->model()->value() - _v )
-		* ( m_waveView->m_sampleBufferInfo->frames )
-		/ m_waveView->m_sampleBufferInfo->sampleRate;
+		* ( m_waveView->m_sampleBuffer->frames() )
+		/ m_waveView->m_sampleBuffer->sampleRate();
 
 	return d1 < d2 || d2 > 0.005;
 }

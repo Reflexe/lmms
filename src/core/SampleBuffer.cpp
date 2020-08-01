@@ -44,7 +44,6 @@
 SampleBuffer::SampleBuffer(const QString &_audio_file, bool ignoreError)
 		: SampleBuffer{internal::SampleBufferFileHelper::Load(_audio_file, ignoreError)}
 {
-	m_playInfo->setMaybeAudioFile(_audio_file);
 }
 
 
@@ -55,17 +54,14 @@ SampleBuffer::SampleBuffer(SampleBuffer::DataVector &&movedData, sample_rate_t s
 
 SampleBuffer::SampleBuffer(SampleBuffer &&sampleBuffer) noexcept
 	:
-	  m_data{std::move(sampleBuffer.m_data)},
-	  m_playInfo(std::move(sampleBuffer.m_playInfo))
+	  m_data{std::move(sampleBuffer.m_data)}
 {
-	emit sampleUpdated(UpdateType::Clear);
+	emit sampleUpdated();
 }
 
 SampleBuffer &SampleBuffer::operator=(SampleBuffer &&other) noexcept{
-	DataChangeHelper helper(this, UpdateType::Clear);
-
 	m_data = std::move(other.m_data);
-	m_playInfo = std::move(other.m_playInfo);
+	emit sampleUpdated();
 
 	return *this;
 }
@@ -76,10 +72,8 @@ void SampleBuffer::saveSettings(QDomDocument &doc, QDomElement &_this) {
 		_this.setAttribute("data", toBase64(string));
 	}
 
-	auto data = guardedData();
-	_this.setAttribute("sampleRate", data->getSampleRate());
-	_this.setAttribute("amplification", data->getAmplification());
-	_this.setAttribute("frequency", data->getFrequency());
+	_this.setAttribute("sampleRate", m_data->getSampleRate());
+	_this.setAttribute("frequency", m_data->getFrequency());
 }
 
 void SampleBuffer::loadSettings(const QDomElement &_this) {
@@ -94,24 +88,23 @@ void SampleBuffer::loadSettings(const QDomElement &_this) {
 	if (_this.hasAttribute("data")) {
 		*m_data = internal::SampleBufferData::loadFromBase64(_this.attribute("data"), loadingSampleRate);
 	}
-
-	if (_this.hasAttribute("amplification")) {
-		m_data->setAmplification(_this.attribute("amplification").toFloat());
-	}
-
+	
 	if (_this.hasAttribute("frequency")) {
 		m_data->setFrequency(_this.attribute("frequency").toFloat());
 	}
+	
+	emit sampleUpdated();
 }
 
 bool SampleBuffer::play(sampleFrame *_ab, handleState *_state,
+						SampleBufferPlayInfo &playInfo,
 						const fpp_t _frames,
 						const float _freq,
 						const LoopMode _loopmode) {
-	f_cnt_t startFrame = m_playInfo->getStartFrame();
-	f_cnt_t endFrame = m_playInfo->getEndFrame();
-	f_cnt_t loopStartFrame = m_playInfo->getLoopStartFrame();
-	f_cnt_t loopEndFrame = m_playInfo->getLoopEndFrame();
+	f_cnt_t startFrame = playInfo.startFrame();
+	f_cnt_t endFrame = playInfo.endFrame();
+	f_cnt_t loopStartFrame = playInfo.loopStartFrame();
+	f_cnt_t loopEndFrame = playInfo.loopEndFrame();
 
 	if (endFrame == 0 || _frames == 0) {
 		return false;
@@ -219,8 +212,8 @@ bool SampleBuffer::play(sampleFrame *_ab, handleState *_state,
 	_state->setFrameIndex(play_frame);
 
 	for (fpp_t i = 0; i < _frames; ++i) {
-		_ab[i][0] *= m_data->getAmplification();
-		_ab[i][1] *= m_data->getAmplification();
+		_ab[i][0] *= playInfo.amplification();
+		_ab[i][1] *= playInfo.amplification();
 	}
 
 	return true;
@@ -246,65 +239,6 @@ f_cnt_t SampleBuffer::getPingPongIndex(f_cnt_t _index, f_cnt_t _startf, f_cnt_t 
 	return (looppos < looplen)
 		   ? _endf - looppos
 		   : _startf + (looppos - looplen);
-}
-
-
-void SampleBuffer::visualize(QPainter &_p, const QRect &_dr,
-							 const QRect &_clip, f_cnt_t _from_frame, f_cnt_t _to_frame) {
-	auto polyPair = visualizeToPoly(_dr, _clip, _from_frame, _to_frame);
-
-	_p.setRenderHint(QPainter::Antialiasing);
-	_p.drawPolyline(polyPair.first);
-	_p.drawPolyline(polyPair.second);
-}
-
-std::pair<QPolygonF, QPolygonF> SampleBuffer::visualizeToPoly(const QRect &_dr, const QRect &_clip,
-															  f_cnt_t _from_frame, f_cnt_t _to_frame) const {
-	const int w = _dr.width();
-	const int h = _dr.height();
-	const bool focus_on_range = _from_frame < _to_frame;
-	int y_space = (h / 2);
-
-	/* Don't visualize while rendering / doing after-rendering changes. */
-	return Engine::mixer()->runWhileNotRendering([=]() -> std::pair<QPolygonF, QPolygonF> {
-		if (m_data->frames() == 0) return {};
-
-		auto to_frame = _to_frame;
-		if (to_frame > m_data->frames())
-			to_frame = m_data->frames();
-
-
-		const int nb_frames = focus_on_range ? to_frame - _from_frame : m_data->frames();
-		if (nb_frames == 0) return {};
-
-		const int fpp = qBound<int>(1, nb_frames / w,  20);
-
-		bool shouldAddAdditionalPoint = (nb_frames % fpp) != 0;
-		int pointsCount = (nb_frames / fpp) + (shouldAddAdditionalPoint ? 1 : 0);
-		auto l = QPolygonF(pointsCount);
-		auto r = QPolygonF(pointsCount);
-
-		int n = 0;
-		const int xb = _dr.x();
-		const int first = focus_on_range ? _from_frame : 0;
-		const int last = focus_on_range ? to_frame : m_data->frames();
-
-		int zeroPoint = _dr.y() + y_space;
-		if (h % 2 != 0)
-			zeroPoint += 1;
-		for (int frame = first; frame < last; frame += fpp) {
-			double x = (xb + (frame - first) * double(w) / nb_frames);
-
-			l[n] = QPointF(x,
-						   (zeroPoint + (m_data->data()[frame][0] * y_space)));
-			r[n] = QPointF(x,
-						   (zeroPoint + (m_data->data()[frame][1] * y_space)));
-
-			++n;
-		}
-
-		return {std::move(l), std::move(r)};
-	});
 }
 
 
@@ -363,34 +297,18 @@ QString SampleBuffer::openAudioFile(const QString &currentAudioFile) {
 }
 
 
-QString SampleBuffer::openAndSetAudioFile(const QString &currentAudioFile) {
-	QString fileName = this->openAudioFile(currentAudioFile);
-
-	if (!fileName.isEmpty()) {
-		this->setAudioFile(fileName);
-	}
-
-	return fileName;
-}
-
-
 QString SampleBuffer::openAndSetWaveformFile(QString currentAudioFile) {
 	if (currentAudioFile.isEmpty()) {
 		currentAudioFile = ConfigManager::inst()->factorySamplesDir() + "waveforms/10saw.flac";
 	}
 
-	QString fileName = this->openAudioFile(currentAudioFile);
-
-	if (!fileName.isEmpty()) {
-		this->setAudioFile(fileName);
-	}
+	QString fileName = SampleBuffer::openAudioFile(currentAudioFile);
 
 	return fileName;
 }
 
 sample_t SampleBuffer::userWaveSample(const float _sample) const {
-	auto data = guardedData();
-	f_cnt_t dataFrames = data->frames();
+	f_cnt_t dataFrames = m_data->frames();
 	if (dataFrames == 0)
 		return 0;
 
@@ -400,15 +318,13 @@ sample_t SampleBuffer::userWaveSample(const float _sample) const {
 		f1 += dataFrames;
 	}
 
-	return linearInterpolate(data->data()[f1][0], data->data()[(f1 + 1) % dataFrames][0], fraction(frame));
+	return linearInterpolate(m_data->data()[f1][0], m_data->data()[(f1 + 1) % dataFrames][0], fraction(frame));
 }
 
 
 QString &SampleBuffer::toBase64(QString &_dst) const {
-	auto data = guardedData();
-
-	base64::encode((const char *) data->data(),
-				   data->frames() * sizeof(sampleFrame), _dst);
+	base64::encode((const char *) m_data->data(),
+				   m_data->frames() * sizeof(sampleFrame), _dst);
 
 	return _dst;
 }
@@ -476,39 +392,38 @@ SampleBuffer::handleState::~handleState() {
 	src_delete(m_resamplingData);
 }
 
-SampleBuffer::DataChangeHelper::DataChangeHelper(SampleBuffer *buffer, SampleBuffer::UpdateType updateType)
-		:m_buffer{buffer}, m_updateType{updateType}
-{
-}
+//SampleBuffer::DataChangeHelper::DataChangeHelper(SampleBuffer *buffer, SampleBuffer::UpdateType updateType)
+//		:m_buffer{buffer}, m_updateType{updateType}
+//{
+//}
 
-SampleBuffer::DataChangeHelper::~DataChangeHelper() {
-	*m_buffer->m_playInfo = internal::SampleBufferPlayInfo(m_buffer->m_data->frames());
-
-	m_buffer->m_infoChangeNotifier->onValueUpdated(m_buffer->createInfo());
-	emit m_buffer->sampleUpdated(m_updateType);
-}
-
-void SampleBuffer::addData(const SampleBuffer::DataVector &vector, sample_rate_t sampleRate) {
-	// First of all, don't let anyone read.
-	DataChangeHelper helper(this, UpdateType::Append);
-
-	m_data->addData(vector, sampleRate);
-}
-
-void SampleBuffer::resetData(DataVector &&newData, sample_rate_t dataSampleRate) {
-	DataChangeHelper helper(this, UpdateType::Clear);
-	m_data->resetData(std::move(newData), dataSampleRate);
-}
-
-void SampleBuffer::reverse() {
-	DataChangeHelper helper(this, UpdateType::Clear);
-	m_data->reverse();
-}
-
-void SampleBuffer::setAudioFile(const QString &audioFile, bool ignoreError)
-{
-	*this = SampleBuffer(audioFile, ignoreError);
-}
+//SampleBuffer::DataChangeHelper::~DataChangeHelper() {
+//	*m_buffer->m_playInfo = internal::SampleBufferPlayInfo(m_buffer->m_data->frames());
+//
+//	emit m_buffer->sampleUpdated(m_updateType);
+//}
+//
+//void SampleBuffer::addData(const SampleBuffer::DataVector &vector, sample_rate_t sampleRate) {
+//	// First of all, don't let anyone read.
+//	DataChangeHelper helper(this, UpdateType::Append);
+//
+//	m_data->addData(vector, sampleRate);
+//}
+//
+//void SampleBuffer::resetData(DataVector &&newData, sample_rate_t dataSampleRate) {
+//	DataChangeHelper helper(this, UpdateType::Clear);
+//	m_data->resetData(std::move(newData), dataSampleRate);
+//}
+//
+//void SampleBuffer::reverse() {
+//	DataChangeHelper helper(this, UpdateType::Clear);
+//	m_data->reverse();
+//}
+//
+//void SampleBuffer::setAudioFile(const QString &audioFile, bool ignoreError)
+//{
+//	*this = SampleBuffer(audioFile, ignoreError);
+//}
 
 SampleBuffer::SampleBuffer()
 	: SampleBuffer{internal::SampleBufferData{}}
@@ -516,10 +431,9 @@ SampleBuffer::SampleBuffer()
 }
 
 SampleBuffer::SampleBuffer(internal::SampleBufferData &&data)
-		: m_data{std::make_shared<internal::SampleBufferData>(std::move(data))},
-		  m_playInfo(std::make_shared<internal::SampleBufferPlayInfo>(m_data->frames()))
+		: m_data{std::make_shared<internal::SampleBufferData>(std::move(data))}
 {
-	emit sampleUpdated(UpdateType::Clear);
+	emit sampleUpdated();
 }
 
 SampleBuffer::SampleBuffer(const QString &base64Data, sample_rate_t sample_rate)

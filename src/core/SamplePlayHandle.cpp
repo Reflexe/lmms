@@ -23,6 +23,8 @@
  */
 
 #include "SamplePlayHandle.h"
+
+#include <utility>
 #include "AudioPort.h"
 #include "BBTrack.h"
 #include "Engine.h"
@@ -32,17 +34,18 @@
 
 
 
-SamplePlayHandle::SamplePlayHandle(const std::shared_ptr<SampleBuffer> &sampleBuffer, bool ownAudioPort) :
-	PlayHandle( TypeSamplePlayHandle ),
-	m_sampleBuffer( sampleBuffer ),
-	m_sampleBufferInfo(m_sampleBuffer->createInfo()),
-	m_doneMayReturnTrue( true ),
-	m_frame( 0 ),
-	m_ownAudioPort( ownAudioPort ),
-	m_defaultVolumeModel( DefaultVolume, MinVolume, MaxVolume, 1 ),
-	m_volumeModel( &m_defaultVolumeModel ),
-	m_track( NULL ),
-	m_bbTrack( NULL )
+SamplePlayHandle::SamplePlayHandle(std::shared_ptr<SampleBuffer> sampleBuffer,  const SampleBufferPlayInfo &playInfo, 
+		bool ownAudioPort) :
+		PlayHandle( TypeSamplePlayHandle ),
+		m_sampleBuffer(std::move( sampleBuffer )),
+		m_playInfo(playInfo),
+		m_doneMayReturnTrue( true ),
+		m_frame( 0 ),
+		m_ownAudioPort( ownAudioPort ),
+		m_defaultVolumeModel( DefaultVolume, MinVolume, MaxVolume, 1 ),
+		m_volumeModel( &m_defaultVolumeModel ),
+		m_track( NULL ),
+		m_bbTrack( NULL )
 {
 	if (ownAudioPort)
 	{
@@ -52,17 +55,8 @@ SamplePlayHandle::SamplePlayHandle(const std::shared_ptr<SampleBuffer> &sampleBu
 
 
 
-
-SamplePlayHandle::SamplePlayHandle( const QString& sampleFile ) :
-	SamplePlayHandle( std::make_shared<SampleBuffer>( sampleFile, false ) , true)
-{
-}
-
-
-
-
 SamplePlayHandle::SamplePlayHandle( SampleTCO* tco ) :
-	SamplePlayHandle( tco->sampleBuffer() , false)
+	SamplePlayHandle( tco->sampleBuffer() , tco->getPlayInfo(), false)
 {
 	m_track = tco->getTrack();
 	setAudioPort( ( (SampleTrack *)tco->getTrack() )->audioPort() );
@@ -109,8 +103,8 @@ void SamplePlayHandle::play( sampleFrame * buffer )
 /*		stereoVolumeVector v =
 			{ { m_volumeModel->value() / DefaultVolume,
 				m_volumeModel->value() / DefaultVolume } };*/
-		if( ! m_sampleBuffer->play( workingBuffer, &m_state, frames,
-								BaseFreq ) )
+		if( ! m_sampleBuffer->play(workingBuffer, &m_state, m_playInfo, frames,
+								   BaseFreq ) )
 		{
 			memset( workingBuffer, 0, frames * sizeof( sampleFrame ) );
 		}
@@ -140,8 +134,8 @@ bool SamplePlayHandle::isFromTrack( const Track * _track ) const
 
 f_cnt_t SamplePlayHandle::totalFrames() const
 {
-	f_cnt_t total_frames = ( m_sampleBufferInfo.endFrame - m_sampleBufferInfo.startFrame );
-	qreal processingToSampleRateRatio = static_cast<qreal>(Engine::mixer()->processingSampleRate()) / static_cast<qreal>(m_sampleBufferInfo.sampleRate);
+	f_cnt_t total_frames = (m_playInfo.endFrame() - m_playInfo.startFrame() );
+	qreal processingToSampleRateRatio = static_cast<qreal>(Engine::mixer()->processingSampleRate()) / static_cast<qreal>(m_sampleBuffer->sampleRate());
 
 	return static_cast<f_cnt_t>(total_frames * processingToSampleRateRatio);
 }

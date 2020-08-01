@@ -118,8 +118,7 @@ EnvelopeAndLfoParameters::EnvelopeAndLfoParameters(
 	m_controlEnvAmountModel( false, this, tr( "Modulate env amount" ) ),
 	m_lfoFrame( 0 ),
 	m_lfoAmountIsZero( false ),
-	m_lfoShapeData( NULL ),
-	m_userWaveInfo(m_userWave.createUpdatingValue(this))
+	m_lfoShapeData( NULL )
 {
 	m_amountModel.setCenterValue( 0 );
 	m_lfoAmountModel.setCenterValue( 0 );
@@ -222,7 +221,7 @@ inline sample_t EnvelopeAndLfoParameters::lfoShapeSample( fpp_t _frame_offset )
 			shape_sample = Oscillator::sawSample( phase );
 			break;
 		case UserDefinedWave:
-			shape_sample = m_userWave.userWaveSample( phase );
+			shape_sample = m_userWave->userWaveSample( phase );
 			break;
 		case RandomWave:
 			if( frame == 0 )
@@ -355,7 +354,7 @@ void EnvelopeAndLfoParameters::saveSettings( QDomDocument & _doc,
 	m_lfoAmountModel.saveSettings( _doc, _parent, "lamt" );
 	m_x100Model.saveSettings( _doc, _parent, "x100" );
 	m_controlEnvAmountModel.saveSettings( _doc, _parent, "ctlenvamt" );
-	_parent.setAttribute( "userwavefile", m_userWaveInfo->audioFile );
+	_parent.setAttribute( "userwavefile", m_userWave->audioFileName() );
 }
 
 
@@ -387,7 +386,7 @@ void EnvelopeAndLfoParameters::loadSettings( const QDomElement & _this )
 		m_sustainModel.setValue( 1.0 - m_sustainModel.value() );
 	}
 
-	m_userWave.setAudioFile( _this.attribute( "userwavefile" ) );
+	m_userWave.reset(new SampleBuffer(_this.attribute( "userwavefile" )));
 
 	updateSampleVars();
 }

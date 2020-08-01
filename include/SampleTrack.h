@@ -27,6 +27,7 @@
 
 #include <QDialog>
 #include <QLayout>
+#include <QTimer>
 
 #include "AudioPort.h"
 #include "FxMixer.h"
@@ -51,7 +52,7 @@ public:
 	virtual ~SampleTCO();
 
 	void changeLength( const MidiTime & _length ) override;
-	const QString & sampleFile() const;
+	QString sampleFile() const;
 
 	void saveSettings( QDomDocument & _doc, QDomElement & _parent ) override;
 	void loadSettings( const QDomElement & _this ) override;
@@ -63,6 +64,8 @@ public:
 	std::shared_ptr<SampleBuffer> sampleBuffer() {
 		return m_sampleBuffer;
 	}
+	
+	void setSampleBuffer(const std::shared_ptr<SampleBuffer> &sampleBuffer);
 
 	MidiTime sampleLength() const;
 
@@ -77,50 +80,69 @@ public:
 	 * @brief isEmpty  Check if this TCO has not content.
 	 */
 	bool isEmpty() const;
-
+	
+	const SampleBufferPlayInfo &getPlayInfo() const;
+	
 public slots:
 	void setSampleFile( const QString & _sf );
 	void updateLength();
 	void toggleRecord();
-
-
-private slots:
-
-	void onSampleBufferChanged(int updateType);
-
+	void onSampleBufferChanged();
+	
 private:
 	std::shared_ptr<SampleBuffer> m_sampleBuffer;
-	SampleBuffer::InfoUpdatingValue m_sampleBufferInfo;
 	BoolModel m_recordModel;
 	bool m_isPlaying;
-
-	using Watcher=QFutureWatcher<SampleBuffer::SampleBufferInfo>;
-
-	Watcher m_loadingWatcher;
+	SampleBufferPlayInfo m_playInfo;
+	
+	QFutureWatcher<void> m_loadingWatcher;
 
 	friend class SampleTCOView;
+	friend class SampleTrack; 
 
 
 	void onFileLoadingFinished();
 
 signals:
-	void sampleChanged(int updateType);
+	void sampleChanged();
+	void onRecordingStatusChanged(bool isRecording);
 
 } ;
 
+class SampleTCOView;
+
+namespace internal {
+class RecordingVisualizer : public QObject {
+Q_OBJECT
+
+public:
+	explicit RecordingVisualizer(SampleTCOView *tcoView);
+	~RecordingVisualizer() override;
+
+private slots:
+	void onTimerInterval();
+
+private:
+	SampleTCOView *m_tcoView;
+	QTimer *m_visualizationTimer;
+	SampleBufferVisualizer::ReaderType m_dataReader;
+	QFutureWatcher<void> m_visualizationWatcher;
+};
+}
 
 
 class SampleTCOView : public TrackContentObjectView
 {
 	Q_OBJECT
 
+	friend class internal::RecordingVisualizer;
+
 public:
 	SampleTCOView( SampleTCO * _tco, TrackView * _tv );
 	virtual ~SampleTCOView() = default;
 
 public slots:
-
-	void updateSample(int updateType);
+	void updateSample();
 
 
 protected:
@@ -133,16 +155,23 @@ protected:
 	void paintEvent( QPaintEvent * ) override;
 
 
+private slots:
+	void onRecordingStatusChanged(bool isRecording);
+	
 private:
 	SampleTCO * m_tco;
 
 	std::shared_ptr<QMutex> m_sampleBufferVisualizerMutex = std::make_shared<QMutex>();
 	std::shared_ptr<SampleBufferVisualizer> m_sampleBufferVisualizer = std::make_shared<SampleBufferVisualizer>();
+	
+	std::unique_ptr<internal::RecordingVisualizer> m_maybeRecordingVisualizer;
 
 	using Watcher=QFutureWatcher<void>;
 	Watcher m_visualizationWatcher;
 
-	void updateVisualizer(QPen p, SampleBufferVisualizer::Operation operation);
+	void updateVisualizer(QPen p);
+	
+	
 };
 
 

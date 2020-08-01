@@ -32,9 +32,10 @@
 #include "debug.h"
 
 
-SampleRecordHandle::SampleRecordHandle(SampleTCO* tco , MidiTime startRecordTimeOffset) :
+SampleRecordHandle::SampleRecordHandle(SampleTCO* tco, MidiTime startRecordTimeOffset) :
 	PlayHandle( TypeSamplePlayHandle ),
 	m_framesRecorded( 0 ),
+	m_inputReader{Engine::mixer()->createInputReader()},
 	m_track( tco->getTrack() ),
 	m_bbTrack( NULL ),
 	m_tco( tco ),
@@ -48,26 +49,9 @@ SampleRecordHandle::SampleRecordHandle(SampleTCO* tco , MidiTime startRecordTime
 
 
 SampleRecordHandle::~SampleRecordHandle()
-{	
-	// No problem to block here.
-	// this is not a renderer thread anymore
-	// so it will not cause a deadlock
-	// with requestChangesInModel.
-
-	// Wait for the current async rendering job
-	// to finish.
-	m_lastAsyncWork.waitForFinished();
-
-	if (! m_currentBuffer.empty()) {
-		// We have data that has not been written into the buffer.
-		// force-write it into the buffer.
-
-		// Add a new rendering job and wait for it to finish.
-		addOrCreateBuffer();
-		m_lastAsyncWork.waitForFinished();
-	}
-
-	m_tco->updateLength ();
+{
+	m_tco->setSampleBuffer(std::make_shared<SampleBuffer>(std::move(m_currentBuffer),
+														  Engine::mixer ()->inputSampleRate ()));
 
 	// If this is an automatically created tco,
 	// enable resizing.
@@ -84,18 +68,13 @@ SampleRecordHandle::~SampleRecordHandle()
 
 void SampleRecordHandle::play( sampleFrame * /*_working_buffer*/ )
 {
-	const sampleFrame * recbuf = Engine::mixer()->inputBuffer();
-	const f_cnt_t frames = Engine::mixer()->inputBufferFrames();
+	const f_cnt_t frames = m_inputReader.read_space();
+	auto recbuf = m_inputReader.read(frames);
 
-	writeBuffer( recbuf, frames );
-
-	// Add data to the buffer.
-	if (m_lastAsyncWork.isFinished())
-		addOrCreateBuffer();
-
+	writeBuffer( &recbuf[0], frames );
+	
 	m_framesRecorded += frames;
 	m_timeRecorded = m_framesRecorded / Engine::framesPerTick (Engine::mixer ()->inputSampleRate ());
-	m_currentBuffer.clear();
 }
 
 
@@ -156,29 +135,6 @@ void SampleRecordHandle::copyBufferFromStereo(const sampleFrame *inputBuffer,
 		}
 	}
 }
-
-void SampleRecordHandle::addOrCreateBuffer() {
-	auto sampleBuffer = m_tco->sampleBuffer ();
-	auto currentBufferCopy = m_currentBuffer;
-	m_lastAsyncWork = runAsync(std::bind([this, currentBufferCopy, sampleBuffer] () mutable{
-		if (m_framesRecorded == 0) {
-			// Protect m_tco->setStartTimeOffset;
-			auto guard = Engine::mixer()->requestChangesGuard();
-			// Make sure we don't have the previous data.
-			sampleBuffer->resetData(std::move (currentBufferCopy),
-														 Engine::mixer ()->inputSampleRate ());
-			m_tco->setStartTimeOffset (m_startRecordTimeOffset);
-		} else {
-			if (! currentBufferCopy.empty ()) {
-				sampleBuffer->addData(currentBufferCopy,
-										Engine::mixer ()->inputSampleRate ());
-			}
-		}
-	}));
-
-}
-
-
 
 
 void SampleRecordHandle::writeBuffer( const sampleFrame * _ab,

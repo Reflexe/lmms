@@ -27,50 +27,65 @@
 #include <QPainter>
 #include <QDebug>
 
-SampleBufferVisualizer::SampleBufferVisualizer()
-{
+SampleBufferVisualizer::SampleBufferVisualizer() = default;
 
+void SampleBufferVisualizer::update(ReaderType reader, MidiTime sampleStartOffset,
+									MidiTime sampleLength, const QRect &parentRect, float pixelsPerTact,
+									f_cnt_t framesPerTact, const QPen &pen)
+{
+	auto buffer = reader.read(reader.read_space());
+	
+	return update(DataType{&buffer[0], static_cast<f_cnt_t>(buffer.size())},
+			sampleStartOffset,
+			sampleLength,
+			parentRect,
+			pixelsPerTact,
+			framesPerTact,
+			pen);
 }
 
-void SampleBufferVisualizer::update(const SampleBuffer &sampleBuffer,
-									MidiTime sampleStartOffset,
-									MidiTime sampleLength,
-									const QRect &parentRect,
-									float pixelsPerTact,
-									f_cnt_t framesPerTact,
-									const QPen &pen,
-									SampleBufferVisualizer::Operation operation)
+
+void SampleBufferVisualizer::update(const SampleBuffer &buffer, MidiTime sampleStartOffset, MidiTime sampleLength,
+									const QRect &parentRect, float pixelsPerTact, f_cnt_t framesPerTact,
+									const QPen &pen) 
 {
+	return update(DataType{buffer.data(), buffer.frames()},
+				  sampleStartOffset,
+				  sampleLength,
+				  parentRect,
+				  pixelsPerTact,
+				  framesPerTact,
+				  pen);
+}
+
+void
+SampleBufferVisualizer::update(const DataType& data, MidiTime sampleStartOffset, MidiTime sampleLength,
+							   const QRect &parentRect, float pixelsPerTact, f_cnt_t framesPerTact, const QPen &pen) {
+	bool shouldClear = false;
+
 	// !=
 	if (pixelsPerTact < m_pixelsPerTact || pixelsPerTact > m_pixelsPerTact
-			|| framesPerTact != m_framesPerTact
-			|| sampleLength < m_cachedTime)
-		operation = Operation::Clear;
+		|| framesPerTact != m_framesPerTact
+		|| sampleLength < m_cachedTime)
+		shouldClear = true;
 
 	m_pixelsPerTact = pixelsPerTact;
 	m_generalPaintOffset = sampleStartOffset;
 	m_framesPerTact = framesPerTact;
 	m_drawPixelOffset = parentRect.left();
 
-	switch (operation) {
-	case Operation::Clear:
-		m_cachedPixmaps.clear();
-		m_currentPixmap.pixmap = QPixmap();
-		m_currentPixmap.totalTime = 0;
-		m_cachedTime = 0;
-
-#ifdef Q_FALLTHROUGH
-	Q_FALLTHROUGH();
-#endif
-	case Operation::Append:
-		appendMultipleTacts(sampleBuffer,
-							sampleLength,
-							parentRect.translated(-parentRect.x(),
-												  0),
-							pen);
-		break;
+	if (shouldClear) {
+		clear();
 	}
+
+
+	appendMultipleBars(data,
+					   sampleLength,
+					   parentRect.translated(-parentRect.x(),
+											 0),
+					   pen);
 }
+
 
 void SampleBufferVisualizer::draw(QPainter &painter)
 {
@@ -88,10 +103,18 @@ void SampleBufferVisualizer::draw(QPainter &painter)
 	painter.drawPixmap(targetRect, m_currentPixmap.pixmap);
 }
 
-void SampleBufferVisualizer::appendMultipleTacts(const SampleBuffer &sampleBuffer,
-												 MidiTime sampleLength,
-												 const QRect &parentRect,
-												 const QPen &pen)
+void SampleBufferVisualizer::clear() {
+	m_cachedPixmaps.clear();
+	m_currentPixmap.pixmap = QPixmap();
+	m_currentPixmap.totalTime = 0;
+	m_cachedTime = 0;
+}
+
+
+void SampleBufferVisualizer::appendMultipleBars(const DataType &data,
+												MidiTime sampleLength,
+												const QRect &parentRect,
+												const QPen &pen)
 {
 	for (; (m_cachedTime+m_currentPixmap.totalTime) < sampleLength;)
 	{
@@ -124,28 +147,28 @@ void SampleBufferVisualizer::appendMultipleTacts(const SampleBuffer &sampleBuffe
 			}
 		}
 
-		auto result = appendTact(sampleBuffer,
-								 totalTime,
-								 parentRect,
-								 pen,
-								 isCompleteTact);
+		auto result = appendBar(data,
+								totalTime,
+								parentRect,
+								pen,
+								isCompleteTact);
 		if (! result)
 			break;
 
 		if (isCompleteTact) {
 			m_cachedTime += ( m_currentPixmap.totalTime );
-			m_cachedPixmaps.push_back(std::move(m_currentPixmap));
+			m_cachedPixmaps.push_back(m_currentPixmap);
 			m_currentPixmap.pixmap = QPixmap();
 			m_currentPixmap.totalTime = 0;
 		}
 	}
 }
 
-bool SampleBufferVisualizer::appendTact(const SampleBuffer &sampleBuffer,
-										const MidiTime &totalTime,
-										const QRect &parentRect,
-										const QPen &pen,
-										bool isLastInTact)
+bool SampleBufferVisualizer::appendBar(const DataType &data,
+									   const MidiTime &totalTime,
+									   const QRect &parentRect,
+									   const QPen &pen,
+									   bool isLastInTact)
 {
 	auto offsetFromTact = m_currentPixmap.totalTime;
 
@@ -158,10 +181,10 @@ bool SampleBufferVisualizer::appendTact(const SampleBuffer &sampleBuffer,
 	// Generate the actual visualization.
 	auto fromFrame = MidiTime(m_cachedTime + offsetFromTact).frames (m_framesPerTact);
 
-	auto poly = sampleBuffer.visualizeToPoly (currentPaintInTact,
-											  QRect(),
-											  fromFrame,
-											  fromFrame + totalTime.frames(m_framesPerTact));
+	auto poly = visualizeToPoly(data, currentPaintInTact,
+								QRect(),
+								fromFrame,
+								fromFrame + totalTime.frames(m_framesPerTact));
 
 
 	m_currentPixmap.totalTime += totalTime;
@@ -203,4 +226,59 @@ QRect SampleBufferVisualizer::getRectForSampleFragment(QRect parentRect, MidiTim
 
 
 	return r;
+}
+
+//void SampleBufferVisualizer::visualize(QPainter &_p, const QRect &_dr,
+//							 const QRect &_clip, f_cnt_t _from_frame, f_cnt_t _to_frame) {
+////	auto polyPair = visualizeToPoly(<#initializer#>, _dr, _clip, _from_frame, _to_frame);
+//
+//	_p.setRenderHint(QPainter::Antialiasing);
+//	_p.drawPolyline(polyPair.first);
+//	_p.drawPolyline(polyPair.second);
+//}
+
+std::pair<QPolygonF, QPolygonF>
+SampleBufferVisualizer::visualizeToPoly(const DataType &data, const QRect &_dr, const QRect &_clip, f_cnt_t _from_frame,
+										f_cnt_t _to_frame) const {
+	
+	const int w = _dr.width();
+	const int h = _dr.height();
+	const bool focus_on_range = _from_frame < _to_frame;
+	int y_space = (h / 2);
+
+	/* Don't visualize while rendering / doing after-rendering changes. */
+	if (data.frames == 0) return {};
+
+	auto to_frame = qMin<f_cnt_t>(_to_frame, data.frames);
+
+	const int nb_frames = focus_on_range ? to_frame - _from_frame : data.frames;
+	if (nb_frames == 0) return {};
+
+	const int fpp = qBound<int>(1, nb_frames / w,  20);
+
+	bool shouldAddAdditionalPoint = (nb_frames % fpp) != 0;
+	int pointsCount = (nb_frames / fpp) + (shouldAddAdditionalPoint ? 1 : 0);
+	auto l = QPolygonF(pointsCount);
+	auto r = QPolygonF(pointsCount);
+
+	int n = 0;
+	const int xb = _dr.x();
+	const int first = focus_on_range ? _from_frame : 0;
+	const int last = focus_on_range ? to_frame : data.frames;
+
+	int zeroPoint = _dr.y() + y_space;
+	if (h % 2 != 0)
+		zeroPoint += 1;
+	for (int frame = first; frame < last; frame += fpp) {
+		double x = (xb + (frame - first) * double(w) / nb_frames);
+
+		l[n] = QPointF(x,
+					   (zeroPoint + (data.data[frame][0] * y_space)));
+		r[n] = QPointF(x,
+					   (zeroPoint + (data.data[frame][1] * y_space)));
+
+		++n;
+	}
+
+	return {std::move(l), std::move(r)};
 }

@@ -71,9 +71,9 @@ static thread_local bool s_renderingThread;
 
 Mixer::Mixer( bool renderOnly ) :
 	m_renderOnly( renderOnly ),
-	m_framesPerPeriod( DEFAULT_BUFFER_SIZE ),
-	m_inputBufferRead( 0 ),
-	m_inputBufferWrite( 1 ),
+	m_framesPerPeriod( getFramesPerPeriod(renderOnly) ),
+	/* TODO: input buffer size */
+	m_inputBuffer(m_framesPerPeriod * 1024),
 	m_readBuf( NULL ),
 	m_writeBuf( NULL ),
 	m_workers(),
@@ -93,42 +93,11 @@ Mixer::Mixer( bool renderOnly ) :
 	m_doChangesMutex( QMutex::Recursive ),
 	m_waitingForWrite( false )
 {
-	for( int i = 0; i < 2; ++i )
-	{
-		m_inputBufferFrames[i] = 0;
-		m_inputBufferSize[i] = DEFAULT_BUFFER_SIZE * 100;
-		m_inputBuffer[i] = new sampleFrame[ DEFAULT_BUFFER_SIZE * 100 ];
-		BufferManager::clear( m_inputBuffer[i], m_inputBufferSize[i] );
-	}
-
 	// determine FIFO size and number of frames per period
 	int fifoSize = 1;
-
-	// if not only rendering (that is, using the GUI), load the buffer
-	// size from user configuration
-	if( renderOnly == false )
-	{
-		m_framesPerPeriod = 
-			( fpp_t ) ConfigManager::inst()->
-				value( "mixer", "framesperaudiobuffer" ).toInt();
-
-		// if the value read from user configuration is not set or
-		// lower than the minimum allowed, use the default value and
-		// save it to the configuration
-		if( m_framesPerPeriod < MINIMUM_BUFFER_SIZE )
-		{
-			ConfigManager::inst()->setValue( "mixer",
-						"framesperaudiobuffer",
-						QString::number( DEFAULT_BUFFER_SIZE ) );
-
-			m_framesPerPeriod = DEFAULT_BUFFER_SIZE;
-		}
-		else if( m_framesPerPeriod > DEFAULT_BUFFER_SIZE )
-		{
-			fifoSize = m_framesPerPeriod / DEFAULT_BUFFER_SIZE;
-			m_framesPerPeriod = DEFAULT_BUFFER_SIZE;
-		}
-	}
+	
+	if (renderOnly)
+		fifoSize = m_framesPerPeriod / DEFAULT_BUFFER_SIZE;
 
 	// allocte the FIFO from the determined size
 	m_fifo = new fifo( fifoSize );
@@ -192,11 +161,6 @@ Mixer::~Mixer()
 	for( int i = 0; i < 3; i++ )
 	{
 		MemoryHelper::alignedFree( m_bufferPool[i] );
-	}
-
-	for( int i = 0; i < 2; ++i )
-	{
-		delete[] m_inputBuffer[i];
 	}
 }
 
@@ -310,30 +274,13 @@ bool Mixer::criticalXRuns() const
 
 
 void Mixer::pushInputFrames(const sampleFrame * _ab, const f_cnt_t _frames) {
-	requestChangeInModel();
-
-	f_cnt_t frames = m_inputBufferFrames[ m_inputBufferWrite ];
-	int size = m_inputBufferSize[ m_inputBufferWrite ];
-	sampleFrame * buf = m_inputBuffer[ m_inputBufferWrite ];
-
-	if( frames + _frames > size )
-	{
-		size = qMax( size * 2, frames + _frames );
-		sampleFrame * ab = new sampleFrame[ size ];
-		memcpy( ab, buf, frames * sizeof( sampleFrame ) );
-		delete [] buf;
-
-		m_inputBufferSize[ m_inputBufferWrite ] = size;
-		m_inputBuffer[ m_inputBufferWrite ] = ab;
-
-		buf = ab;
-	}
-
-	memcpy( &buf[ frames ], _ab, _frames * sizeof( sampleFrame ) );
-
-	m_inputBufferFrames[ m_inputBufferWrite ] += _frames;
-
-	doneChangeInModel();
+	auto writtenFrames = m_inputBuffer.write(_ab, _frames);
+	
+	if (_frames != writtenFrames)
+		qWarning("AudioDevice had tried to push %d frames, but I was able to get only %d\n",
+				 _frames, writtenFrames);
+	
+	// TODO: handle a case where _frames is too big for the buffer's space.
 }
 
 
@@ -360,27 +307,20 @@ const surroundSampleFrame * Mixer::renderNextBuffer()
 		p != last_metro_pos &&
 			// Stop crash with metronome if empty project
 				Engine::getSong()->countTracks() )
-	{
-		tick_t ticksPerBar = MidiTime::ticksPerBar();
-		if ( p.getTicks() % ( ticksPerBar / 1 ) == 0 )
-		{
-			addPlayHandle( new SamplePlayHandle( "misc/metronome02.ogg" ) );
-		}
-		else if ( p.getTicks() % ( ticksPerBar /
-			song->getTimeSigModel().getNumerator() ) == 0 )
-		{
-			addPlayHandle( new SamplePlayHandle( "misc/metronome01.ogg" ) );
-		}
-		last_metro_pos = p;
+	{ /* TODO */
+//		tick_t ticksPerBar = MidiTime::ticksPerBar();
+//		if ( p.getTicks() % ( ticksPerBar / 1 ) == 0 )
+//		{
+//			addPlayHandle( new SamplePlayHandle( "misc/metronome02.ogg" ) );
+//		}
+//		else if ( p.getTicks() % ( ticksPerBar /
+//			song->getTimeSigModel().getNumerator() ) == 0 )
+//		{
+//			addPlayHandle( new SamplePlayHandle( "misc/metronome01.ogg" ) );
+//		}
+//		last_metro_pos = p;
 	}
-
-	// swap buffer
-	m_inputBufferWrite = ( m_inputBufferWrite + 1 ) % 2;
-	m_inputBufferRead =  ( m_inputBufferRead + 1 ) % 2;
-
-	// clear new write buffer
-	m_inputBufferFrames[ m_inputBufferWrite ] = 0;
-
+	
 	if( m_clearSignal )
 	{
 		m_clearSignal = false;
@@ -1219,12 +1159,36 @@ MidiClient * Mixer::tryMidiClients()
 	return new MidiDummy;
 }
 
+fpp_t Mixer::getFramesPerPeriod(bool renderOnly) {
+	fpp_t framesPerPeriod = DEFAULT_BUFFER_SIZE;
+		
+	// if not only rendering (that is, using the GUI), load the buffer
+	// size from user configuration
+	if( renderOnly == false )
+	{
+		framesPerPeriod =
+				( fpp_t ) ConfigManager::inst()->
+						value( "mixer", "framesperaudiobuffer" ).toInt();
+	
+		// if the value read from user configuration is not set or
+		// lower than the minimum allowed, use the default value and
+		// save it to the configuration
+		if( framesPerPeriod < MINIMUM_BUFFER_SIZE )
+		{
+			ConfigManager::inst()->setValue( "mixer",
+											 "framesperaudiobuffer",
+											 QString::number( DEFAULT_BUFFER_SIZE ) );
 
-
-
-
-
-
+			framesPerPeriod = DEFAULT_BUFFER_SIZE;
+		}
+		else if( framesPerPeriod > DEFAULT_BUFFER_SIZE )
+		{
+			framesPerPeriod = DEFAULT_BUFFER_SIZE;
+		}
+	}
+	
+	return framesPerPeriod;
+}
 
 
 Mixer::fifoWriter::fifoWriter( Mixer* mixer, fifo * _fifo ) :
