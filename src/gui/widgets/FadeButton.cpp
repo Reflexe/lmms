@@ -2,7 +2,7 @@
  * FadeButton.cpp - implementation of fade-button
  *
  * Copyright (c) 2005-2009 Tobias Doerffel <tobydox/at/users.sourceforge.net>
- * 
+ *
  * This file is part of LMMS - https://lmms.io
  *
  * This program is free software; you can redistribute it and/or
@@ -21,7 +21,7 @@
  * Boston, MA 02110-1301 USA.
  *
  */
- 
+
 
 #include <QTimer>
 #include <QPainter>
@@ -75,6 +75,14 @@ void FadeButton::activate()
 
 
 
+void FadeButton::activateOnce()
+{
+	if (activeNotes == 0) { activate(); }
+}
+
+
+
+
 void FadeButton::noteEnd()
 {
 	if (activeNotes <= 0)
@@ -97,24 +105,25 @@ void FadeButton::noteEnd()
 
 
 
+
 void FadeButton::paintEvent(QPaintEvent * _pe)
 {
 	QColor col = m_normalColor;
 
-	if(!m_stateTimer.isNull() && m_stateTimer.elapsed() < FadeDuration)
+	if(m_stateTimer.isValid() && m_stateTimer.elapsed() < FadeDuration)
 	{
 		// The first part of the fade, when a note is triggered.
 		col = fadeToColor(m_activatedColor, m_holdColor, m_stateTimer, FadeDuration);
 		QTimer::singleShot(20, this, SLOT(update()));
 	}
-	else if (!m_stateTimer.isNull()
+	else if (m_stateTimer.isValid()
 		&& m_stateTimer.elapsed() >= FadeDuration
 		&& activeNotes > 0)
 	{
 		// The fade is done, but at least one note is still held.
 		col = m_holdColor;
 	}
-	else if (!m_releaseTimer.isNull() && m_releaseTimer.elapsed() < FadeDuration)
+	else if (m_releaseTimer.isValid() && m_releaseTimer.elapsed() < FadeDuration)
 	{
 		// Last note just ended. Fade to default color.
 		col = fadeToColor(m_holdColor, m_normalColor, m_releaseTimer, FadeDuration);
@@ -140,12 +149,12 @@ void FadeButton::paintEvent(QPaintEvent * _pe)
 }
 
 
-QColor FadeButton::fadeToColor(QColor startCol, QColor endCol, QTime timer, float duration)
+QColor FadeButton::fadeToColor(QColor startCol, QColor endCol, QElapsedTimer timer, float duration)
 {
 	QColor col;
 
 	const float state = 1 - timer.elapsed() / duration;
-	const int r = (int)(endCol.red() * (1.0f - state) 
+	const int r = (int)(endCol.red() * (1.0f - state)
 		+ startCol.red() * state);
 	const int g = (int)(endCol.green() * (1.0f - state)
 		+ startCol.green() * state);

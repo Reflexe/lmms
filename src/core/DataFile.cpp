@@ -27,10 +27,12 @@
 #include "DataFile.h"
 
 #include <math.h>
+#include <map>
 
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
+#include <QDir>
 #include <QMessageBox>
 
 #include "base64.h"
@@ -43,13 +45,42 @@
 #include "ProjectVersion.h"
 #include "SongEditor.h"
 #include "TextFloat.h"
+#include "PathUtil.h"
 
 #include "lmmsversion.h"
 
 static void findIds(const QDomElement& elem, QList<jo_id_t>& idList);
 
 
+// QMap with the DOM elements that access file resources
+const DataFile::ResourcesMap DataFile::ELEMENTS_WITH_RESOURCES = {
+{ "sampletco", {"src"} },
+{ "audiofileprocessor", {"src"} },
+};
 
+// Vector with all the upgrade methods
+const std::vector<DataFile::UpgradeMethod> DataFile::UPGRADE_METHODS = {
+	&DataFile::upgrade_0_2_1_20070501   ,   &DataFile::upgrade_0_2_1_20070508,
+	&DataFile::upgrade_0_3_0_rc2        ,   &DataFile::upgrade_0_3_0,
+	&DataFile::upgrade_0_4_0_20080104   ,   &DataFile::upgrade_0_4_0_20080118,
+	&DataFile::upgrade_0_4_0_20080129   ,   &DataFile::upgrade_0_4_0_20080409,
+	&DataFile::upgrade_0_4_0_20080607   ,   &DataFile::upgrade_0_4_0_20080622,
+	&DataFile::upgrade_0_4_0_beta1      ,   &DataFile::upgrade_0_4_0_rc2,
+	&DataFile::upgrade_1_0_99           ,   &DataFile::upgrade_1_1_0,
+	&DataFile::upgrade_1_1_91           ,   &DataFile::upgrade_1_2_0_rc3,
+	&DataFile::upgrade_1_3_0            ,   &DataFile::upgrade_noHiddenClipNames,
+	&DataFile::upgrade_automationNodes
+};
+
+// Vector of all versions that have upgrade routines.
+const std::vector<ProjectVersion> DataFile::UPGRADE_VERSIONS = {
+	"0.2.1-20070501"   ,   "0.2.1-20070508"   ,   "0.3.0-rc2",
+	"0.3.0"            ,   "0.4.0-20080104"   ,   "0.4.0-20080118",
+	"0.4.0-20080129"   ,   "0.4.0-20080409"   ,   "0.4.0-20080607",
+	"0.4.0-20080622"   ,   "0.4.0-beta1"      ,   "0.4.0-rc2",
+	"1.0.99-0"         ,   "1.1.0-0"          ,   "1.1.91-0",
+	"1.2.0-rc3"        ,   "1.3.0"
+};
 
 DataFile::typeDescStruct
 		DataFile::s_types[DataFile::TypeCount] =
@@ -61,7 +92,8 @@ DataFile::typeDescStruct
 	{ DataFile::DragNDropData, "dnddata" },
 	{ DataFile::ClipboardData, "clipboard-data" },
 	{ DataFile::JournalData, "journaldata" },
-	{ DataFile::EffectSettings, "effectsettings" }
+	{ DataFile::EffectSettings, "effectsettings" },
+	{ DataFile::NotePattern, "pattern" }
 } ;
 
 
@@ -69,13 +101,15 @@ DataFile::typeDescStruct
 
 DataFile::DataFile( Type type ) :
 	QDomDocument( "lmms-project" ),
+	m_fileName(""),
 	m_content(),
 	m_head(),
-	m_type( type )
+	m_type( type ),
+	m_fileVersion( UPGRADE_METHODS.size() )
 {
 	appendChild( createProcessingInstruction("xml", "version=\"1.0\""));
 	QDomElement root = createElement( "lmms-project" );
-	root.setAttribute( "version", LDF_VERSION_STRING );
+	root.setAttribute( "version", m_fileVersion );
 	root.setAttribute( "type", typeName( type ) );
 	root.setAttribute( "creator", "LMMS" );
 	root.setAttribute( "creatorversion", LMMS_VERSION );
@@ -94,8 +128,10 @@ DataFile::DataFile( Type type ) :
 
 DataFile::DataFile( const QString & _fileName ) :
 	QDomDocument(),
+	m_fileName(_fileName),
 	m_content(),
-	m_head()
+	m_head(),
+	m_fileVersion( UPGRADE_METHODS.size() )
 {
 	QFile inFile( _fileName );
 	if( !inFile.open( QIODevice::ReadOnly ) )
@@ -122,8 +158,10 @@ DataFile::DataFile( const QString & _fileName ) :
 
 DataFile::DataFile( const QByteArray & _data ) :
 	QDomDocument(),
+	m_fileName(""),
 	m_content(),
-	m_head()
+	m_head(),
+	m_fileVersion( UPGRADE_METHODS.size() )
 {
 	loadData( _data, "<internal data>" );
 }
@@ -160,12 +198,21 @@ bool DataFile::validate( QString extension )
 			return true;
 		}
 		break;
+	case Type::NotePattern:
+		if (extension == "xpt" || extension == "xptz")
+		{
+			return true;
+		}
+		break;
 	case Type::UnknownType:
 		if (! ( extension == "mmp" || extension == "mpt" || extension == "mmpz" ||
 				extension == "xpf" || extension == "xml" ||
 				( extension == "xiz" && ! pluginFactory->pluginSupportingExtension(extension).isNull()) ||
 				extension == "sf2" || extension == "sf3" || extension == "pat" || extension == "mid" ||
 				extension == "dll"
+#ifdef LMMS_HAVE_LV2
+				|| extension == "lv2"
+#endif
 				) )
 		{
 			return true;
@@ -236,29 +283,95 @@ void DataFile::write( QTextStream & _strm )
 
 
 
-bool DataFile::writeFile( const QString& filename )
+bool DataFile::writeFile(const QString& filename, bool withResources)
 {
-	const QString fullName = nameWithExtension( filename );
+	// Small lambda function for displaying errors
+	auto showError = [this](QString title, QString body){
+		if (gui)
+		{
+			QMessageBox mb;
+			mb.setWindowTitle(title);
+			mb.setText(body);
+			mb.setIcon(QMessageBox::Warning);
+			mb.setStandardButtons(QMessageBox::Ok);
+			mb.exec();
+		}
+		else
+		{
+			qWarning() << body;
+		}
+	};
+
+	// If we are saving without resources, filename is just the file we are
+	// saving to. If we are saving with resources (project bundle), filename
+	// will be used (discarding extensions) to create a folder where the
+	// bundle will be saved in
+
+	QFileInfo fInfo(filename);
+
+	const QString bundleDir = fInfo.path() + "/" + fInfo.fileName().section('.', 0, 0);
+	const QString resourcesDir = bundleDir + "/resources";
+	const QString fullName = withResources
+		? nameWithExtension(bundleDir + "/" + fInfo.fileName())
+		: nameWithExtension(filename);
 	const QString fullNameTemp = fullName + ".new";
 	const QString fullNameBak = fullName + ".bak";
 
-	QFile outfile( fullNameTemp );
-
-	if( !outfile.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
+	// If we are saving with resources, setup the bundle folder first
+	if (withResources)
 	{
-		if( gui )
+		// First check if there's a bundle folder with the same name in
+		// the path already. If so, warns user that we can't overwrite a
+		// project bundle.
+		if (QDir(bundleDir).exists())
 		{
-			QMessageBox::critical( NULL,
-				SongEditor::tr( "Could not write file" ),
-				SongEditor::tr( "Could not open %1 for writing. You probably are not permitted to "
-								"write to this file. Please make sure you have write-access to "
-								"the file and try again." ).arg( fullName ) );
+			showError(SongEditor::tr("Operation denied"),
+				SongEditor::tr("A bundle folder with that name already eists on the "
+				"selected path. Can't overwrite a project bundle. Please select a different "
+				"name."));
+
+			return false;
 		}
+
+		// Create bundle folder
+		if (!QDir().mkdir(bundleDir))
+		{
+			showError(SongEditor::tr("Error"),
+				SongEditor::tr("Couldn't create bundle folder."));
+			return false;
+		}
+
+		// Create resources folder
+		if (!QDir().mkdir(resourcesDir))
+		{
+			showError(SongEditor::tr("Error"),
+				SongEditor::tr("Couldn't create resources folder."));
+			return false;
+		}
+
+		// Copy resources to folder and update paths
+		if (!copyResources(resourcesDir))
+		{
+			showError(SongEditor::tr("Error"),
+				SongEditor::tr("Failed to copy resources."));
+			return false;
+		}
+	}
+
+	QFile outfile (fullNameTemp);
+
+	if (!outfile.open(QIODevice::WriteOnly | QIODevice::Truncate))
+	{
+		showError(SongEditor::tr("Could not write file"),
+			SongEditor::tr("Could not open %1 for writing. You probably are not permitted to"
+				"write to this file. Please make sure you have write-access to "
+				"the file and try again.").arg(fullName));
 
 		return false;
 	}
 
-	if( fullName.section( '.', -1 ) == "mmpz" )
+	const QString extension = fullName.section('.', -1);
+	if (extension == "mmpz" || extension == "xptz")
 	{
 		QString xml;
 		QTextStream ts( &xml );
@@ -294,6 +407,164 @@ bool DataFile::writeFile( const QString& filename )
 		return true;
 	}
 
+	return false;
+}
+
+
+
+
+bool DataFile::copyResources(const QString& resourcesDir)
+{
+	// List of filenames used so we can append a counter to any
+	// repeating filenames
+	std::list<QString> namesList;
+
+	ResourcesMap::const_iterator it = ELEMENTS_WITH_RESOURCES.begin();
+
+	// Copy resources and manipulate the DataFile to have local paths to them
+	while (it != ELEMENTS_WITH_RESOURCES.end())
+	{
+		QDomNodeList list = elementsByTagName(it->first);
+
+		// Go through all elements with the tagname from our map
+		for (int i = 0; !list.item(i).isNull(); ++i)
+		{
+			QDomElement el = list.item(i).toElement();
+
+			std::vector<QString>::const_iterator res = it->second.begin();
+
+			// Search for attributes that point to resources
+			while (res != it->second.end())
+			{
+				// If the element has that attribute
+				if (el.hasAttribute(*res))
+				{
+					// Get absolute path to resource
+					bool error;
+					QString resPath = PathUtil::toAbsolute(el.attribute(*res), &error);
+					// If we are running without the project loaded (from CLI), "local:" base
+					// prefixes aren't converted, so we need to convert it ourselves
+					if (error)
+					{
+						resPath = QFileInfo(m_fileName).path() + "/" + resPath.remove(0,
+							PathUtil::basePrefix(PathUtil::Base::LocalDir).length());
+					}
+
+					// Check if we need to add a counter to the filename
+					QString finalFileName = QFileInfo(resPath).fileName();
+					QString extension = resPath.section('.', -1);
+					int repeatedNames = 0;
+					for (QString name : namesList)
+					{
+						if (finalFileName == name)
+						{
+							++repeatedNames;
+						}
+					}
+					// Add the name to the list before modifying it
+					namesList.push_back(finalFileName);
+					if (repeatedNames)
+					{
+						// Remove the extension, add the counter and add the
+						// extension again to get the final file name
+						finalFileName.truncate(finalFileName.lastIndexOf('.'));
+						finalFileName = finalFileName + "-" + QString::number(repeatedNames) + "." + extension;
+					}
+
+					// Final path is our resources dir + the new file name
+					QString finalPath = resourcesDir + "/" + finalFileName;
+
+					// Copy resource file to the resources folder
+					if(!QFile::copy(resPath, finalPath))
+					{
+						qWarning("ERROR: Failed to copy resource");
+						return false;
+					}
+
+					// Update attribute path to point to the bundle file
+					QString newAtt = PathUtil::basePrefix(PathUtil::Base::LocalDir) + "resources/" + finalFileName;
+					el.setAttribute(*res, newAtt);
+				}
+				++res;
+			}
+		}
+		++it;
+	}
+
+	return true;
+}
+
+
+
+
+/**
+ * @brief This recursive method will go through all XML nodes of the DataFile
+ *        and check whether any of them have local paths. If they are not on
+ *        our list of elements that can have local paths we return true,
+ *        indicating that we potentially have plugins with local paths that
+ *        would be a security issue. The Song class can then abort loading
+ *        this project.
+ * @param parent The parent node being iterated. When called
+ *        without arguments, this will be an empty element that will be
+ *        ignored (since the second parameter will be true).
+ * @param firstCall Defaults to true, and indicates to this recursive
+ *        method whether this is the first call. If it is it will use the
+ *        root element as the parent.
+ */
+bool DataFile::hasLocalPlugins(QDomElement parent /* = QDomElement()*/, bool firstCall /* = true*/) const
+{
+	// If this is the first iteration of the recursion we use the root element
+	if (firstCall) { parent = documentElement(); }
+
+	auto children = parent.childNodes();
+	for (int i = 0; i < children.size(); ++i)
+	{
+		QDomNode child = children.at(i);
+		QDomElement childElement = child.toElement();
+
+		bool skipNode = false;
+		// Skip the nodes allowed to have "local:" attributes, but
+		// still check its children
+		for
+		(
+			ResourcesMap::const_iterator it = ELEMENTS_WITH_RESOURCES.begin();
+			it != ELEMENTS_WITH_RESOURCES.end();
+			++it
+		)
+		{
+			if (childElement.tagName() == it->first)
+			{
+				skipNode = true;
+				break;
+			}
+		}
+
+		// Check if they have "local:" attribute (unless they are allowed to
+		// and skipNode is true)
+		if (!skipNode)
+		{
+			auto attributes = childElement.attributes();
+			for (int i = 0; i < attributes.size(); ++i)
+			{
+				QDomNode attribute = attributes.item(i);
+				QDomAttr attr = attribute.toAttr();
+				if (attr.value().startsWith(PathUtil::basePrefix(PathUtil::Base::LocalDir),
+					Qt::CaseInsensitive))
+				{
+					return true;
+				}
+			}
+		}
+
+		// Now we check the children of this node (recursively)
+		// and if any return true we return true.
+		if (hasLocalPlugins(childElement, false))
+		{
+			return true;
+		}
+	}
+
+	// If we got here none of the nodes had the "local:" path.
 	return false;
 }
 
@@ -769,10 +1040,10 @@ void DataFile::upgrade_0_4_0_rc2()
 void DataFile::upgrade_1_0_99()
 {
 	jo_id_t last_assigned_id = 0;
-	
+
 	QList<jo_id_t> idList;
 	findIds(documentElement(), idList);
-	
+
 	QDomNodeList list = elementsByTagName("ladspacontrols");
 	for(int i = 0; !list.item(i).isNull(); ++i)
 	{
@@ -788,22 +1059,22 @@ void DataFile::upgrade_1_0_99()
 					QDomElement me = createElement("data");
 					me.setAttribute("value", el.attribute("data"));
 					me.setAttribute("scale_type", "log");
-					
+
 					jo_id_t id;
 					for(id = last_assigned_id + 1;
 						idList.contains(id); id++)
 					{
 					}
-					
+
 					last_assigned_id = id;
 					idList.append(id);
 					me.setAttribute("id", id);
 					el.appendChild(me);
-					
+
 				}
 			}
 		}
-	}	
+	}
 }
 
 
@@ -870,31 +1141,6 @@ void DataFile::upgrade_1_1_91()
 }
 
 
-void DataFile::upgrade_1_2_0_rc3()
-{
-	// Upgrade from earlier bbtrack beat note behaviour of adding
-	// steps if a note is placed after the last step.
-	QDomNodeList bbtracks = elementsByTagName( "bbtrack" );
-	for( int i = 0; !bbtracks.item( i ).isNull(); ++i )
-	{
-		QDomNodeList patterns = bbtracks.item( i
-				).toElement().elementsByTagName(
-								"pattern" );
-		for( int j = 0; !patterns.item( j ).isNull(); ++j )
-		{
-			int patternLength, steps;
-			QDomElement el = patterns.item( j ).toElement();
-			if( el.attribute( "len" ) != "" )
-			{
-				patternLength = el.attribute( "len" ).toInt();
-				steps = patternLength / 12;
-				el.setAttribute( "steps", steps );
-			}
-		}
-	}
-}
-
-
 static void upgradeElement_1_2_0_rc2_42( QDomElement & el )
 {
 	if( el.hasAttribute( "syncmode" ) )
@@ -927,8 +1173,30 @@ static void upgradeElement_1_2_0_rc2_42( QDomElement & el )
 }
 
 
-void DataFile::upgrade_1_2_0_rc2_42()
+void DataFile::upgrade_1_2_0_rc3()
 {
+	// Upgrade from earlier bbtrack beat note behaviour of adding
+	// steps if a note is placed after the last step.
+	QDomNodeList bbtracks = elementsByTagName( "bbtrack" );
+	for( int i = 0; !bbtracks.item( i ).isNull(); ++i )
+	{
+		QDomNodeList patterns = bbtracks.item( i
+				).toElement().elementsByTagName(
+								"pattern" );
+		for( int j = 0; !patterns.item( j ).isNull(); ++j )
+		{
+			int patternLength, steps;
+			QDomElement el = patterns.item( j ).toElement();
+			if( el.attribute( "len" ) != "" )
+			{
+				patternLength = el.attribute( "len" ).toInt();
+				steps = patternLength / 12;
+				el.setAttribute( "steps", steps );
+			}
+		}
+	}
+
+	// DataFile::upgrade_1_2_0_rc2_42
 	QDomElement el = firstChildElement();
 	while ( !el.isNull() )
 	{
@@ -1044,7 +1312,7 @@ void DataFile::upgrade_1_3_0()
 
 					QDomElement attribute = attributes.item( k ).toElement();
 					if( attribute.attribute( "name" ) == "file" &&
-							( attribute.attribute( "value" ) == "calf" || 
+							( attribute.attribute( "value" ) == "calf" ||
 							attribute.attribute( "value" ) == "calf.so" ) )
 					{
 						attribute.setAttribute( "value", "veal" );
@@ -1308,7 +1576,7 @@ void DataFile::upgrade_1_3_0()
 						};
 						iterate_ladspa_ports(effect, fn);
 					}
-					
+
 					if( attribute.attribute( "name" ) == "plugin" &&
 						attribute.attribute( "value" ) == "StereoTools" )
 					{
@@ -1332,95 +1600,77 @@ void DataFile::upgrade_1_3_0()
 	}
 }
 
+void DataFile::upgrade_noHiddenClipNames()
+{
+	QDomNodeList tracks = elementsByTagName("track");
+
+	auto clearDefaultNames = [](QDomNodeList clips, QString trackName)
+	{
+		for (int j = 0; j < clips.size(); ++j)
+		{
+			QDomElement clip = clips.item(j).toElement();
+			QString clipName = clip.attribute("name", "");
+			if (clipName == trackName) { clip.setAttribute("name", ""); }
+		}
+	};
+
+	for (int i = 0; i < tracks.size(); ++i)
+	{
+		QDomElement track = tracks.item(i).toElement();
+		QString trackName = track.attribute("name", "");
+
+		QDomNodeList instClips = track.elementsByTagName("pattern");
+		QDomNodeList autoClips = track.elementsByTagName("automationpattern");
+		QDomNodeList bbClips = track.elementsByTagName("bbtco");
+
+		clearDefaultNames(instClips, trackName);
+		clearDefaultNames(autoClips, trackName);
+		clearDefaultNames(bbClips, trackName);
+	}
+}
+
+void DataFile::upgrade_automationNodes()
+{
+	QDomNodeList autoPatterns = elementsByTagName("automationpattern");
+
+	// Go through all automation patterns
+	for (int i = 0; i < autoPatterns.size(); ++i)
+	{
+		QDomElement autoPattern = autoPatterns.item(i).toElement();
+
+		// On each automation pattern, get all <time> elements
+		QDomNodeList times = autoPattern.elementsByTagName("time");
+
+		// Loop through all <time> elements and change what we need
+		for (int j=0; j < times.size(); ++j)
+		{
+			QDomElement el = times.item(j).toElement();
+
+			float value = LocaleHelper::toFloat(el.attribute("value"));
+
+			// inValue will be equal to "value" and outValue will
+			// be set to the same
+			el.setAttribute("outValue", value);
+		}
+	}
+}
+
 
 void DataFile::upgrade()
 {
-	ProjectVersion version =
-		documentElement().attribute( "creatorversion" ).
-							replace( "svn", "" );
+	// Runs all necessary upgrade methods
+	std::for_each( UPGRADE_METHODS.begin() + m_fileVersion, UPGRADE_METHODS.end(),
+		[this](UpgradeMethod um)
+		{
+			(this->*um)();
+		}
+	);
 
-	if( version < "0.2.1-20070501" )
-	{
-		upgrade_0_2_1_20070501();
-	}
-
-	if( version < "0.2.1-20070508" )
-	{
-		upgrade_0_2_1_20070508();
-	}
-
-	if( version < "0.3.0-rc2" )
-	{
-		upgrade_0_3_0_rc2();
-	}
-
-	if( version < "0.3.0" )
-	{
-		upgrade_0_3_0();
-	}
-
-	if( version < "0.4.0-20080104" )
-	{
-		upgrade_0_4_0_20080104();
-	}
-
-	if( version < "0.4.0-20080118" )
-	{
-		upgrade_0_4_0_20080118();
-	}
-
-	if( version < "0.4.0-20080129" )
-	{
-		upgrade_0_4_0_20080129();
-	}
-
-	if( version < "0.4.0-20080409" )
-	{
-		upgrade_0_4_0_20080409();
-	}
-
-	if( version < "0.4.0-20080607" )
-	{
-		upgrade_0_4_0_20080607();
-	}
-
-	if( version < "0.4.0-20080622" )
-	{
-		upgrade_0_4_0_20080622();
-	}
-
-	if( version < "0.4.0-beta1" )
-	{
-		upgrade_0_4_0_beta1();
-	}
-	if( version < "0.4.0-rc2" )
-	{
-		upgrade_0_4_0_rc2();
-	}
-	if( version < "1.0.99-0" )
-	{
-		upgrade_1_0_99();
-	}
-	if( version < "1.1.0-0" )
-	{
-		upgrade_1_1_0();
-	}
-	if( version < "1.1.91-0" )
-	{
-		upgrade_1_1_91();
-	}
-	if( version < "1.2.0-rc3" )
-	{
-		upgrade_1_2_0_rc3();
-		upgrade_1_2_0_rc2_42();
-	}
-	if( version < "1.3.0" )
-	{
-		upgrade_1_3_0();
-	}
+	// Bump the file version (which should be the size of the upgrade methods vector)
+	m_fileVersion = UPGRADE_METHODS.size();
 
 	// update document meta data
-	documentElement().setAttribute( "version", LDF_VERSION_STRING );
+	documentElement().setAttribute( "version", m_fileVersion );
 	documentElement().setAttribute( "type", typeName( type() ) );
 	documentElement().setAttribute( "creator", "LMMS" );
 	documentElement().setAttribute( "creatorversion", LMMS_VERSION );
@@ -1480,49 +1730,45 @@ void DataFile::loadData( const QByteArray & _data, const QString & _sourceFile )
 	m_type = type( root.attribute( "type" ) );
 	m_head = root.elementsByTagName( "head" ).item( 0 ).toElement();
 
-
-	if( root.hasAttribute( "creatorversion" ) )
+	if (!root.hasAttribute("version") || root.attribute("version")=="1.0")
 	{
-		// compareType defaults to Build,so it doesn't have to be set here
-		ProjectVersion createdWith = root.attribute( "creatorversion" );
+		// The file versioning is now a unsigned int, not maj.min, so we use
+		// legacyFileVersion() to retrieve the appropriate version
+		m_fileVersion = legacyFileVersion();
+	}
+	else
+	{
+		bool success;
+		m_fileVersion = root.attribute( "version" ).toUInt( &success );
+		if( !success ) qWarning("File Version conversion failure.");
+	}
+
+	if (root.hasAttribute("creatorversion"))
+	{
+		// compareType defaults to All, so it doesn't have to be set here
+		ProjectVersion createdWith = root.attribute("creatorversion");
 		ProjectVersion openedWith = LMMS_VERSION;
 
-		if ( createdWith != openedWith )
-		{
-			// only one compareType needs to be set, and we can compare on one line because setCompareType returns ProjectVersion
-			if( createdWith.setCompareType( ProjectVersion::Minor )
-								!= openedWith )
-			{
-				if( gui != nullptr && root.attribute( "type" ) == "song" )
-				{
-					TextFloat::displayMessage(
-						SongEditor::tr( "Version difference" ),
-						SongEditor::tr(
-							"This %1 was created with "
-							"LMMS %2."
-						).arg(
-							_sourceFile.endsWith( ".mpt" ) ?
-								SongEditor::tr( "template" ) :
-								SongEditor::tr( "project" )
-						)
-						.arg( root.attribute( "creatorversion" ) ),
-						embed::getIconPixmap( "whatsthis", 24, 24 ),
-						2500
-					);
-				}
-			}
+		if (createdWith < openedWith) { upgrade(); }
 
-			// the upgrade needs to happen after the warning as it updates the project version.
-			if( createdWith.setCompareType( ProjectVersion::Build )
-								< openedWith )
-			{
-				upgrade();
-			}
+		if (createdWith.setCompareType(ProjectVersion::Minor)
+		 !=  openedWith.setCompareType(ProjectVersion::Minor)
+		 && gui != nullptr && root.attribute("type") == "song"
+		){
+			auto projectType = _sourceFile.endsWith(".mpt") ?
+				SongEditor::tr("template") : SongEditor::tr("project");
+
+			TextFloat::displayMessage(
+				SongEditor::tr("Version difference"),
+				SongEditor::tr("This %1 was created with LMMS %2")
+				.arg(projectType).arg(createdWith.getVersion()),
+				embed::getIconPixmap("whatsthis", 24, 24),
+				2500
+			);
 		}
 	}
 
-	m_content = root.elementsByTagName( typeName( m_type ) ).
-							item( 0 ).toElement();
+	m_content = root.elementsByTagName(typeName(m_type)).item(0).toElement();
 }
 
 
@@ -1533,9 +1779,23 @@ void findIds(const QDomElement& elem, QList<jo_id_t>& idList)
 		idList.append(elem.attribute("id").toInt());
 	}
 	QDomElement child = elem.firstChildElement();
-	while(!child.isNull()) 
+	while(!child.isNull())
 	{
 		findIds(child, idList);
 		child = child.nextSiblingElement();
 	}
+}
+
+unsigned int DataFile::legacyFileVersion()
+{
+	// Version of LMMs that created this project
+	ProjectVersion creator =
+		documentElement().attribute( "creatorversion" ).
+		replace( "svn", "" );
+
+	// Get an iterator pointing at the first upgrade we need to run (or at the end if there is no such upgrade)
+	auto firstRequiredUpgrade = std::upper_bound( UPGRADE_VERSIONS.begin(), UPGRADE_VERSIONS.end(), creator );
+
+	// Convert the iterator to an index, which is our file version (starting at 0)
+	return std::distance( UPGRADE_VERSIONS.begin(), firstRequiredUpgrade );
 }

@@ -53,7 +53,8 @@ AutomatableModel::AutomatableModel(
 	m_controllerConnection( NULL ),
 	m_valueBuffer( static_cast<int>( Engine::mixer()->framesPerPeriod() ) ),
 	m_lastUpdatedPeriod( -1 ),
-	m_hasSampleExactData( false )
+	m_hasSampleExactData(false),
+	m_useControllerValue(true)
 
 {
 	m_value = fittedValue( val );
@@ -214,7 +215,7 @@ void AutomatableModel::loadSettings( const QDomElement& element, const QString& 
 		}
 		if( thisConnection.isElement() )
 		{
-			setControllerConnection( new ControllerConnection( (Controller*)NULL ) );
+			setControllerConnection(new ControllerConnection((Controller*)NULL, this));
 			m_controllerConnection->loadSettings( thisConnection.toElement() );
 			//m_controllerConnection->setTargetName( displayName() );
 		}
@@ -371,6 +372,8 @@ void AutomatableModel::roundAt( T& value, const T& where ) const
 
 void AutomatableModel::setAutomatedValue( const float value )
 {
+	setUseControllerValue(false);
+
 	m_oldValue = m_value;
 	++m_setValueDepth;
 	const float oldValue = m_value;
@@ -382,13 +385,13 @@ void AutomatableModel::setAutomatedValue( const float value )
 	if( oldValue != m_value )
 	{
 		// notify linked models
-		for( AutoModelVector::Iterator it = m_linkedModels.begin();
-									it != m_linkedModels.end(); ++it )
+		for (AutoModelVector::Iterator it = m_linkedModels.begin();
+			it != m_linkedModels.end(); ++it)
 		{
-			if( (*it)->m_setValueDepth < 1 &&
-				(*it)->fittedValue( m_value ) != (*it)->m_value )
+			if (!((*it)->controllerConnection()) && (*it)->m_setValueDepth < 1 &&
+					(*it)->fittedValue(m_value) != (*it)->m_value)
 			{
-				(*it)->setAutomatedValue( value );
+				(*it)->setAutomatedValue(value);
 			}
 		}
 		m_valueChanged = true;
@@ -499,8 +502,23 @@ void AutomatableModel::unlinkModel( AutomatableModel* model )
 
 void AutomatableModel::linkModels( AutomatableModel* model1, AutomatableModel* model2 )
 {
+	if (!model1->m_linkedModels.contains( model2 ) && model1 != model2)
+	{
+		// copy data
+		model1->m_value = model2->m_value;
+		if (model1->valueBuffer() && model2->valueBuffer())
+		{
+			std::copy_n(model2->valueBuffer()->data(),
+				model1->valueBuffer()->length(),
+				model1->valueBuffer()->data());
+		}
+		// send dataChanged() before linking (because linking will
+		// connect the two dataChanged() signals)
+		emit model1->dataChanged();
+		// finally: link the models
 		model1->linkModel( model2 );
 		model2->linkModel( model1 );
+	}
 }
 
 
@@ -569,7 +587,7 @@ float AutomatableModel::controllerValue( int frameOffset ) const
 	}
 
 	AutomatableModel* lm = m_linkedModels.first();
-	if( lm->controllerConnection() )
+	if (lm->controllerConnection() && lm->useControllerValue())
 	{
 		return fittedValue( lm->controllerValue( frameOffset ) );
 	}
@@ -592,7 +610,7 @@ ValueBuffer * AutomatableModel::valueBuffer()
 	float val = m_value; // make sure our m_value doesn't change midway
 
 	ValueBuffer * vb;
-	if( m_controllerConnection && m_controllerConnection->getController()->isSampleExact() )
+	if (m_controllerConnection && m_useControllerValue && m_controllerConnection->getController()->isSampleExact())
 	{
 		vb = m_controllerConnection->valueBuffer();
 		if( vb )
@@ -623,23 +641,28 @@ ValueBuffer * AutomatableModel::valueBuffer()
 			return &m_valueBuffer;
 		}
 	}
-	AutomatableModel* lm = NULL;
-	if( hasLinkedModels() )
+
+	if (!m_controllerConnection)
 	{
-		lm = m_linkedModels.first();
-	}
-	if( lm && lm->controllerConnection() && lm->controllerConnection()->getController()->isSampleExact() )
-	{
-		vb = lm->valueBuffer();
-		float * values = vb->values();
-		float * nvalues = m_valueBuffer.values();
-		for( int i = 0; i < vb->length(); i++ )
+		AutomatableModel* lm = NULL;
+		if (hasLinkedModels())
 		{
-			nvalues[i] = fittedValue( values[i] );
+			lm = m_linkedModels.first();
 		}
-		m_lastUpdatedPeriod = s_periodCounter;
-		m_hasSampleExactData = true;
-		return &m_valueBuffer;
+		if (lm && lm->controllerConnection() && lm->useControllerValue() &&
+				lm->controllerConnection()->getController()->isSampleExact())
+		{
+			vb = lm->valueBuffer();
+			float * values = vb->values();
+			float * nvalues = m_valueBuffer.values();
+			for (int i = 0; i < vb->length(); i++)
+			{
+				nvalues[i] = fittedValue(values[i]);
+			}
+			m_lastUpdatedPeriod = s_periodCounter;
+			m_hasSampleExactData = true;
+			return &m_valueBuffer;
+		}
 	}
 
 	if( m_oldValue != val )
@@ -693,7 +716,7 @@ void AutomatableModel::reset()
 
 
 
-float AutomatableModel::globalAutomationValueAt( const MidiTime& time )
+float AutomatableModel::globalAutomationValueAt( const TimePos& time )
 {
 	// get patterns that connect to this model
 	QVector<AutomationPattern *> patterns = AutomationPattern::patternsForModel( this );
@@ -705,7 +728,7 @@ float AutomatableModel::globalAutomationValueAt( const MidiTime& time )
 	else
 	{
 		// of those patterns:
-		// find the patterns which overlap with the miditime position
+		// find the patterns which overlap with the time position
 		QVector<AutomationPattern *> patternsInRange;
 		for( QVector<AutomationPattern *>::ConstIterator it = patterns.begin(); it != patterns.end(); it++ )
 		{
@@ -723,7 +746,7 @@ float AutomatableModel::globalAutomationValueAt( const MidiTime& time )
 			latestPattern = patternsInRange[0];
 		}
 		else
-		// if we find no patterns at the exact miditime, we need to search for the last pattern before time and use that
+		// if we find no patterns at the exact time, we need to search for the last pattern before time and use that
 		{
 			int latestPosition = 0;
 
@@ -748,6 +771,20 @@ float AutomatableModel::globalAutomationValueAt( const MidiTime& time )
 		// if we still find no pattern, the value at that time is undefined so
 		// just return current value as the best we can do
 		else return m_value;
+	}
+}
+
+void AutomatableModel::setUseControllerValue(bool b)
+{
+	if (b)
+	{
+		m_useControllerValue = true;
+		emit dataChanged();
+	}
+	else if (m_controllerConnection && m_useControllerValue)
+	{
+		m_useControllerValue = false;
+		emit dataChanged();
 	}
 }
 

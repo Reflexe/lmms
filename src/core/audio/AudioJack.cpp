@@ -55,6 +55,8 @@ AudioJack::AudioJack( bool & _success_ful, Mixer*  _mixer ) :
 	m_framesDoneInCurBuf( 0 ),
 	m_framesToDoInCurBuf( 0 )
 {
+	m_stopped = true;
+
 	_success_ful = initJackClient();
 	if( _success_ful )
 	{
@@ -200,10 +202,9 @@ bool AudioJack::initJackClient()
 
 void AudioJack::startProcessing()
 {
-	m_stopped = false;
-
 	if( m_active || m_client == NULL )
 	{
+		m_stopped = false;
 		return;
 	}
 
@@ -244,6 +245,7 @@ void AudioJack::startProcessing()
 		}
 	}
 
+	m_stopped = false;
 	free( ports );
 }
 
@@ -327,8 +329,13 @@ void AudioJack::renamePort( AudioPort * _port )
 					_port->name() + " R" };
 		for( ch_cnt_t ch = 0; ch < DEFAULT_CHANNELS; ++ch )
 		{
+#ifdef LMMS_HAVE_JACK_PRENAME
+			jack_port_rename( m_client, m_portMap[_port].ports[ch],
+					name[ch].toLatin1().constData() );
+#else
 			jack_port_set_name( m_portMap[_port].ports[ch],
 					name[ch].toLatin1().constData() );
+#endif
 		}
 	}
 #endif
@@ -344,8 +351,8 @@ int AudioJack::processCallback( jack_nframes_t _nframes, void * _udata )
 	// add to the following sound processing
 	if( m_midiClient && _nframes > 0 )
 	{
-		m_midiClient->JackMidiRead(_nframes);
-		m_midiClient->JackMidiWrite(_nframes);
+		m_midiClient.load()->JackMidiRead(_nframes);
+		m_midiClient.load()->JackMidiWrite(_nframes);
 	}
 
 	for( int c = 0; c < channels(); ++c )
@@ -357,22 +364,22 @@ int AudioJack::processCallback( jack_nframes_t _nframes, void * _udata )
 
 #ifdef AUDIO_PORT_SUPPORT
 	const int frames = qMin<int>( _nframes, mixer()->framesPerPeriod() );
-	for( jackPortMap::iterator it = m_portMap.begin();
+	for( JackPortMap::iterator it = m_portMap.begin();
 						it != m_portMap.end(); ++it )
 	{
 		for( ch_cnt_t ch = 0; ch < channels(); ++ch )
 		{
-			if( it.data().ports[ch] == NULL )
+			if( it.value().ports[ch] == NULL )
 			{
 				continue;
 			}
 			jack_default_audio_sample_t * buf =
 			(jack_default_audio_sample_t *) jack_port_get_buffer(
-							it.data().ports[ch],
+							it.value().ports[ch],
 								_nframes );
 			for( int frame = 0; frame < frames; ++frame )
 			{
-				buf[frame] = it.key()->firstBuffer()[frame][ch];
+				buf[frame] = it.key()->buffer()[frame][ch];
 			}
 		}
 	}
