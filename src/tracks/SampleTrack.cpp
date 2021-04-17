@@ -434,7 +434,7 @@ void SampleTCOView::contextMenuEvent( QContextMenuEvent * _cme )
 
 	contextMenu.addAction( embed::getIconPixmap( "record" ),
 				tr( "Set/clear record" ),
-						m_tco, SLOT( toggleRecord() ) );*/
+						m_tco, SLOT( toggleRecord() ) );
 
 	contextMenu.addAction(
 		embed::getIconPixmap("flip_x"),
