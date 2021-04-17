@@ -33,7 +33,7 @@
 #include "debug.h"
 
 
-SampleRecordHandle::SampleRecordHandle(SampleTCO* tco , MidiTime startRecordTimeOffset) :
+SampleRecordHandle::SampleRecordHandle(SampleTCO* tco , TimePos startRecordTimeOffset) :
 	PlayHandle( TypeSamplePlayHandle ),
 	m_framesRecorded( 0 ),
 	m_minLength( tco->length() ),

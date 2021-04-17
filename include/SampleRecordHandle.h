@@ -41,7 +41,7 @@ class Track;
 class SampleRecordHandle : public PlayHandle
 {
 public:
-	explicit SampleRecordHandle( SampleTCO* tco , MidiTime startRecordTimeOffset);
+	explicit SampleRecordHandle( SampleTCO* tco , TimePos startRecordTimeOffset);
 	virtual ~SampleRecordHandle();
 
 	void play( sampleFrame * _working_buffer ) override;
@@ -68,7 +68,7 @@ private:
 	
 	// The offset from the start of m_track that the record has
 	// started from.
-	MidiTime m_startRecordTimeOffset;
+	TimePos m_startRecordTimeOffset;
 } ;
 
 
