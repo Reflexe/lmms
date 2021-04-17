@@ -357,7 +357,8 @@ const surroundSampleFrame * Mixer::renderNextBuffer()
 
 		if( it != m_playHandles.end() )
 		{
-			( *it )->audioPort()->removePlayHandle( ( *it ) );
+			if((*it)->audioPort())
+				( *it )->audioPort()->removePlayHandle( ( *it ) );
 			if( ( *it )->type() == PlayHandle::TypeNotePlayHandle )
 			{
 				NotePlayHandleManager::release( (NotePlayHandle*) *it );
@@ -712,8 +713,8 @@ void Mixer::removePlayHandle(PlayHandle * ph)
 	// which were created in a thread different than mixer thread
 	if (ph->affinityMatters() && ph->affinity() == QThread::currentThread())
 	{
-		if (_ph->audioPort())
-			_ph->audioPort()->removePlayHandle(_ph);
+		if (ph->audioPort())
+			ph->audioPort()->removePlayHandle(ph);
 		bool removedFromList = false;
 		// Check m_newPlayHandles first because doing it the other way around
 		// creates a race condition
