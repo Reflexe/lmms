@@ -41,7 +41,7 @@ class Track;
 class SampleRecordHandle : public PlayHandle
 {
 public:
-	explicit SampleRecordHandle( SampleTCO* tco , TimePos startRecordTimeOffset);
+	explicit SampleRecordHandle(SampleTCO* tco , TimePos startRecordTimeOffset);
 	virtual ~SampleRecordHandle();
 
 	void play( sampleFrame * _working_buffer ) override;
