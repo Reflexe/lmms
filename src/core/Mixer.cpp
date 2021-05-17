@@ -300,7 +300,7 @@ bool Mixer::criticalXRuns() const
 
 
 
-void Mixer::pushInputFrames(const sampleFrame * _ab, const f_cnt_t _frames, bool shouldApplyMasterGain) {
+void Mixer::pushInputFrames(const sampleFrame * _ab, const f_cnt_t _frames) {
 	requestChangeInModel();
 
 	f_cnt_t frames = m_inputBufferFrames[ m_inputBufferWrite ];
@@ -321,11 +321,6 @@ void Mixer::pushInputFrames(const sampleFrame * _ab, const f_cnt_t _frames, bool
 	}
 
 	memcpy( &buf[ frames ], _ab, _frames * sizeof( sampleFrame ) );
-
-	if (!shouldApplyMasterGain) {
-		applyMasterGainToInputBuffer (&buf[ frames ], _frames, DEFAULT_CHANNELS,
-									  masterGain ());
-	}
 
 	m_inputBufferFrames[ m_inputBufferWrite ] += _frames;
 
@@ -406,8 +401,7 @@ const surroundSampleFrame * Mixer::renderNextBuffer()
 		}
 		if( ( *it )->isFinished() )
 		{
-			if (( *it )->audioPort())
-				( *it )->audioPort()->removePlayHandle( ( *it ) );
+			if (( *it )->audioPort()) { (*it)->audioPort()->removePlayHandle((*it)); }
 			if( ( *it )->type() == PlayHandle::TypeNotePlayHandle )
 			{
 				NotePlayHandleManager::release( (NotePlayHandle*) *it );
@@ -773,8 +767,7 @@ void Mixer::removePlayHandlesOfTypes(Track * track, const quint8 types)
 	{
 		if ((*it)->isFromTrack(track) && ((*it)->type() & types))
 		{
-			if (( *it )->audioPort())
-				( *it )->audioPort()->removePlayHandle( ( *it ) );
+			if (( *it )->audioPort()) { ( *it )->audioPort()->removePlayHandle( ( *it ) ); }
 			if( ( *it )->type() == PlayHandle::TypeNotePlayHandle )
 			{
 				NotePlayHandleManager::release( (NotePlayHandle*) *it );
