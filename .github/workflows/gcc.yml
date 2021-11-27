@@ -1,18 +1,25 @@
-name: CI
+name: MinGW
 
 on: [push]
 
 env: 
   CMAKE_OPTS: "-DUSE_WERROR=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CCACHE=ON"
-  MAKEFLAGS: "-j6"
+  MAKEFLAGS: "-j8"
 
 jobs:
   linux_gcc_appimage:
     container:
-      image: "docker://lmmsci/linux.gcc:xenial"
+      image: "docker://lmmsci/linux.gcc:18.04"
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
+    - uses: actions/cache@v2
+      name: ccache
+      with:
+        path: "~/clcache"
+        key: ccache-appimage-${{ github.ref }}
+        restore-keys: |
+          ccache-appimage-
     - name: Building
       run: |
         mkdir build && cd build
@@ -35,12 +42,20 @@ jobs:
     container:
       image: ${{ format('docker://lmmsci/linux.mingw{0}:18.04', matrix.os_version) }} 
     steps:
+      - uses: actions/checkout@v1
+      - uses: actions/cache@v2
+        name: ccache
+        with:
+          path: "~/clcache"
+          key: ccache-mingw-${{ matrix.os_version }}-${{ github.ref }}
+          restore-keys: |
+            ccache-mingw-${{ matrix.os_version }}-
       - name: Building
-        env: 
+        env:
           BITNESS: ${{ matrix.os_version }}
         run: |
           mkdir build && cd build
-          sh ../cmake/build_win32.sh
+          ../cmake/build_win32.sh
           make
     strategy:
       matrix: 

@@ -1,4 +1,4 @@
-name: Windows
+name: MSVC
 on:
   - push
   - pull_request
@@ -19,27 +19,30 @@ jobs:
       - run: echo (Invoke-Expression($env:PLATFORM))
       - uses: actions/checkout@v1
       - name: Cache vcpkg packages
-        uses: actions/cache@preview
+        id: vcpkg_cache
+        uses: actions/cache@v2
         with:
           path: "C:/vcpkg/installed"
           key: vcpkg-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
             vcpkg-${{ matrix.os_version }}-
-      - uses: actions/cache@preview
+      - uses: actions/cache@v2
         name: clcache
         with:
           path: "C:/clcache"
           key: clcache-msvc-${{ matrix.os_version }}-${{ github.ref }}
           restore-keys: |
             clcache-msvc-${{ matrix.os_version }}-
-#      - name: qt cache
-#        uses: actions/cache@preview
-#        with:
-#          path: "C:/Qt"
-#          key: qt-${{ matrix.os_version }}-${{ github.ref }}
-#          restore-keys: |
-#            qt-${{ matrix.os_version }}-
+      - name: qt cache
+        id: qt_cache
+        uses: actions/cache@v2
+        with:
+          path: "C:/Qt"
+          key: qt-${{ matrix.os_version }}-${{ github.ref }}
+          restore-keys: |
+            qt-${{ matrix.os_version }}-
       - name: Install Qt
+        if: steps.qt_cache.outputs.cache-hit != 'true'
         run: |
           if ( -not (Test-Path C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION) ) {
             pip install aqtinstall
@@ -49,33 +52,32 @@ jobs:
             }
           }
 
-          dir C:\Qt\Qt$env:QT_VERSION\$env:QT_VERSION
-      - name: Install dependencies
+          dir C:\Qt\$env:QT_VERSION\$(Invoke-Expression($env:QT_PLATFORM))
+      - name: Install VCPKG dependencies
+        if: steps.vcpkg_cache.outputs.cache-hit != 'true'
         run: |
           vcpkg install --triplet "$(Invoke-Expression($env:PLATFORM))-windows" --recurse fftw3 libsamplerate libsndfile sdl2
-          pip install clcache
+      - name: Install clcache
+        run: pip install clcache
       - name: Configure
-        continue-on-error: true
         run: |
           cmake -G "Visual Studio 16 2019" -DCMAKE_GENERATOR_PLATFORM="$(Invoke-Expression($env:CMAKE_PLATFORM))" `
             -S "$env:GITHUB_WORKSPACE" -B "$env:GITHUB_WORKSPACE/build" `
             -DUSE_COMPILE_CACHE=ON                                      `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo                           `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT"\scripts\buildsystems\vcpkg.cmake `
-            -DCMAKE_PREFIX_PATH=c:/Qt/Qt"$env:QT_VERSION"/"$env:QT_VERSION"/$(Invoke-Expression($env:QT_PLATFORM))
+            -DCACHE_TOOL="clcache.exe" `
+            -DCMAKE_PREFIX_PATH=c:/Qt/"$env:QT_VERSION"/$(Invoke-Expression($env:QT_PLATFORM))
       - name: Build
-        continue-on-error: true
         run: |
-          cmake --build "$env:GITHUB_WORKSPACE/build" -- /maxcpucount:4
+          cmake --build "$env:GITHUB_WORKSPACE/build" -- /maxcpucount
       - name: Create Installer
-        continue-on-error: true
         run: |
           cmake --build "$env:GITHUB_WORKSPACE/build" --target package
           mkdir C:\artifacts
           cp "$env:GITHUB_WORKSPACE/build/lmms-*.exe" "C:\artifacts"
       - name: Upload artifact
         uses: actions/upload-artifact@v1.0.0
-        continue-on-error: true
         with:
           name: "Installer"
           path:  C:\artifacts
